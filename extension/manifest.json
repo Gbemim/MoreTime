@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "MoreTime YouTube Blocker",
+  "version": "1.0.0",
+  "description": "AI-powered YouTube video blocker using Open Graph Protocol metadata with scheduled blocking. Block distracting videos based on your preferences and schedule.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "MoreTime YouTube Blocker",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["content/metadata-checker.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
