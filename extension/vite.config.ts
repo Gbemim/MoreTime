@@ -261,11 +261,16 @@ export default defineConfig({
           });
         }
 
-        // Copy blocked.html
-        const blockedSrc = resolve(__dirname, 'src', 'blocked.html');
-        const blockedDest = resolve(__dirname, 'dist', 'blocked.html');
-        if (existsSync(blockedSrc)) {
-          copyFileSync(blockedSrc, blockedDest);
+        // Copy blocked.html and blocked.js
+        const blockedHtmlSrc = resolve(__dirname, 'src', 'blocked.html');
+        const blockedHtmlDest = resolve(__dirname, 'dist', 'blocked.html');
+        if (existsSync(blockedHtmlSrc)) {
+          copyFileSync(blockedHtmlSrc, blockedHtmlDest);
+        }
+        const blockedJsSrc = resolve(__dirname, 'src', 'blocked.js');
+        const blockedJsDest = resolve(__dirname, 'dist', 'blocked.js');
+        if (existsSync(blockedJsSrc)) {
+          copyFileSync(blockedJsSrc, blockedJsDest);
         }
       },
     },

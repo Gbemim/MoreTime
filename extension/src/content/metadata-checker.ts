@@ -20,6 +20,26 @@ import {
 const metadataCache = new Map<string, { metadata: YouTubeVideoMetadata; timestamp: number }>();
 
 /**
+ * Returns true if the extension context is still valid (extension not reloaded/disabled).
+ * After reload, content scripts keep running but chrome.runtime is invalidated.
+ */
+function isExtensionContextValid(): boolean {
+  try {
+    return typeof chrome !== 'undefined' && !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if an error is due to extension context being invalidated (e.g. after reload).
+ */
+function isContextInvalidatedError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes('Extension context invalidated');
+}
+
+/**
  * Check if current page is a YouTube video page
  * 
  * @returns True if the current page is a YouTube video page
@@ -90,6 +110,8 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
   const scheduleType = getScheduleTypeDisplay(rule.schedule.type);
   const description = reasoning || 'This YouTube video matches your blocking rule.';
   
+  if (!isExtensionContextValid()) return;
+
   // Request redirect via background script (required for chrome-extension:// URLs)
   try {
     await chrome.runtime.sendMessage({
@@ -101,6 +123,7 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
     });
     console.log('[MoreTime] Redirect requested via background script');
   } catch (error) {
+    if (isContextInvalidatedError(error)) return;
     console.error('[MoreTime] Failed to request redirect:', error);
     // If background redirect fails, try direct redirect as last resort
     const blockedUrl = buildBlockedUrl({
@@ -126,6 +149,8 @@ async function checkRuleMatch(
   metadata: YouTubeVideoMetadata,
   url: string
 ): Promise<boolean> {
+  if (!isExtensionContextValid()) return false;
+
   console.log(`[MoreTime] Checking against rule: "${rule.userDescription}"`);
   
   try {
@@ -160,6 +185,7 @@ async function checkRuleMatch(
     );
     return false;
   } catch (error) {
+    if (isContextInvalidatedError(error)) return false;
     console.error('[MoreTime] Error checking metadata:', error);
     return false;
   }
@@ -170,6 +196,8 @@ async function checkRuleMatch(
  */
 async function checkPageAgainstRules(): Promise<void> {
   try {
+    if (!isExtensionContextValid()) return;
+
     // Only check YouTube video pages
     if (!isYouTubeVideoPage()) {
       return;
@@ -213,6 +241,7 @@ async function checkPageAgainstRules(): Promise<void> {
     
     console.log('[MoreTime] YouTube video check complete - not blocked');
   } catch (error) {
+    if (isContextInvalidatedError(error)) return;
     console.error('[MoreTime] Error checking YouTube video metadata:', error);
   }
 }
@@ -227,6 +256,7 @@ if (document.readyState === 'loading') {
 // Also check on navigation (for SPAs)
 let lastUrl = location.href;
 new MutationObserver(() => {
+  if (!isExtensionContextValid()) return;
   const url = location.href;
   if (url !== lastUrl) {
     lastUrl = url;
