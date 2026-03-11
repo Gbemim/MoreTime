@@ -2,16 +2,14 @@
   "manifest_version": 3,
   "name": "MoreTime YouTube Blocker",
   "version": "1.0.0",
-  "description": "AI-powered YouTube video blocker using Open Graph Protocol metadata with scheduled blocking. Block distracting videos based on your preferences and schedule.",
+  "description": "AI-powered YouTube video blocker with scheduled blocking.",
   "permissions": [
     "storage",
-    "alarms",
-    "tabs",
-    "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess"
+    "alarms"
   ],
   "host_permissions": [
-    "https://*/*"
+    "https://www.youtube.com/*",
+    "https://moretime-production.up.railway.app/*"
   ],
   "background": {
     "service_worker": "background.js",

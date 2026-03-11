@@ -3,7 +3,7 @@
  */
 
 // Backend Configuration
-export const BACKEND_URL = 'moretime-production.up.railway.app';
+export const BACKEND_URL = 'https://moretime-production.up.railway.app';
 
 // Cache Configuration
 export const METADATA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes

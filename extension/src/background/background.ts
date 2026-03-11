@@ -22,20 +22,20 @@ async function getActiveRules(): Promise<BlockRule[]> {
 
 /**
  * Apply blocking rules - metadata-based blocking is handled by content scripts
- * This function now only cleans up any legacy URL-based rules
+ * This function cleans up any legacy URL-based rules when declarativeNetRequest is available
  */
 async function applyBlockingRules(activeRules: BlockRule[]): Promise<void> {
   try {
-    // Get existing rules to clean up (legacy URL-based rules)
-    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-    const existingRuleIds = existingRules.map(rule => rule.id);
-
-    // Remove all existing URL-based rules since we use metadata analysis only
-    if (existingRuleIds.length > 0) {
-      await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: existingRuleIds,
-      });
-      console.log(`[MoreTime] Removed ${existingRuleIds.length} legacy URL-based rule(s)`);
+    // Clean up legacy URL-based rules only if declarativeNetRequest permission is present
+    if (chrome.declarativeNetRequest) {
+      const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+      const existingRuleIds = existingRules.map(rule => rule.id);
+      if (existingRuleIds.length > 0) {
+        await chrome.declarativeNetRequest.updateDynamicRules({
+          removeRuleIds: existingRuleIds,
+        });
+        console.log(`[MoreTime] Removed ${existingRuleIds.length} legacy URL-based rule(s)`);
+      }
     }
 
     // Metadata-based blocking is handled by content scripts
