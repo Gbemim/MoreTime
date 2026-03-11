@@ -69,9 +69,8 @@ MoreTime/
    # Or: uvicorn main:app --reload
    ```
 
-   The server will run on `http://localhost:8000`
+   The server will run on `http://localhost:8000`. The API key is read only from `backend/.env`.
 
-   **Deployed backend (e.g. Railway):** The API key must be set as an environment variable in your host’s dashboard—not only in `.env`. If you see `ANTHROPIC_API_KEY environment variable is not set`, add `ANTHROPIC_API_KEY` under **Variables** (or **Settings → Environment**) for the service and redeploy.
 
 ### Extension Setup
 
@@ -96,9 +95,7 @@ MoreTime/
    - Click "Load unpacked"
    - Select the `extension/dist` directory
 
-5. Update backend URL (if needed):
-   - Edit `src/background/background.ts`
-   - Change `BACKEND_URL` if your server runs on a different port/host
+5. The extension uses `http://localhost:8000` by default. To use a different backend, edit `BACKEND_URL` in `extension/src/constants.ts` and rebuild.
 
 ## Usage
 

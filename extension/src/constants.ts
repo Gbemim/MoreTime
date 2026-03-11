@@ -2,8 +2,8 @@
  * Constants used throughout the extension
  */
 
-// Backend Configuration
-export const BACKEND_URL = 'https://moretime-production.up.railway.app';
+// Backend Configuration (local server; env lives only in backend/.env)
+export const BACKEND_URL = 'http://localhost:8000';
 
 // Cache Configuration
 export const METADATA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
