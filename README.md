@@ -53,12 +53,12 @@ MoreTime/
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file (copy from `.env.example`):
+4. Create a `.env` file in `backend/` (copy from `.env.example`):
    ```bash
    cp .env.example .env
    ```
 
-5. Add your Anthropic API key to `.env`:
+5. Add your Anthropic API key to `backend/.env`:
    ```
    ANTHROPIC_API_KEY=your_api_key_here
    ```
@@ -70,6 +70,8 @@ MoreTime/
    ```
 
    The server will run on `http://localhost:8000`
+
+   **Deployed backend (e.g. Railway):** The API key must be set as an environment variable in your host’s dashboard—not only in `.env`. If you see `ANTHROPIC_API_KEY environment variable is not set`, add `ANTHROPIC_API_KEY` under **Variables** (or **Settings → Environment**) for the service and redeploy.
 
 ### Extension Setup
 

@@ -6,7 +6,11 @@ Handles LLM integration to generate website blocking rules
 import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 from dotenv import load_dotenv
+
+# Load .env from backend directory (works regardless of cwd, e.g. uvicorn from repo root)
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from schemas import (
     GenerateRulesRequest,
@@ -21,9 +25,6 @@ from constants import (
     DEFAULT_PORT,
     ERROR_EMPTY_DESCRIPTION,
 )
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Set up logging
 logging.basicConfig(
