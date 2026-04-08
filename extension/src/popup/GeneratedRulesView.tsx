@@ -36,7 +36,7 @@ export const GeneratedRulesView: React.FC<GeneratedRulesViewProps> = ({
 
       <div style={{ marginBottom: '12px' }}>
         <strong>Summary:</strong>
-        <p style={styles.text}>{rules.summary}</p>
+        <p style={styles.textMultiline}>{rules.summary}</p>
       </div>
 
       <div style={{ marginBottom: '12px' }}>

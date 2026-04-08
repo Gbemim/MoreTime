@@ -58,7 +58,7 @@ export const SavedRulesList: React.FC<SavedRulesListProps> = ({
               <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: '14px' }}>
                 {rule.userDescription}
               </div>
-              <div style={styles.textSmall}>{rule.aiSummary}</div>
+              <div style={styles.textSmallMultiline}>{rule.aiSummary}</div>
               <div style={styles.textMuted}>Schedule: {formatSchedule(rule.schedule)}</div>
               <div style={styles.textTiny}>Metadata-based blocking</div>
             </div>

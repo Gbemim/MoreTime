@@ -1,0 +1,21 @@
+sequenceDiagram
+  youtube.com/watch->>Content script: Navigation / debounced check
+  Content script->>Background: GET_ACTIVE_RULES
+  Background-->>Content script: rules in current schedule window
+
+  Content script->>Background: GET_YOUTUBE_OEMBED_METADATA (optional)
+  Background-->>Content script: oEmbed metadata
+  alt no oEmbed
+    Content script->>Content script: DOM OGP fallback
+  end
+
+  loop each active rule
+    Content script->>Background: CHECK_METADATA (+ metadata, url, description)
+    Background->>Backend API: POST /check-metadata
+    Backend API-->>Background: matches, confidence, reasoning
+    Background-->>Content script: result
+    alt matches and confidence ≥ threshold
+      Content script->>Background: REDIRECT_TO_BLOCKED
+      Background->>youtube.com/watch: Navigate to blocked page
+    end
+  end

@@ -6,7 +6,7 @@
 export const BACKEND_URL = 'http://localhost:8000';
 
 /** Set true locally to trace in production builds; `vite` dev always traces via import.meta.env.DEV. */
-export const EXTENSION_VERBOSE_LOGS = false;
+export const EXTENSION_VERBOSE_LOGS = true;
 
 // Cache Configuration
 export const METADATA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes

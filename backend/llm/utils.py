@@ -5,93 +5,67 @@ Utility functions for LLM response parsing
 import json
 import re
 import logging
+from typing import Dict, Optional
 
 from constants import ERROR_JSON_PARSE_FAILED
 
 logger = logging.getLogger(__name__)
 
 
-def _remove_markdown_code_blocks(content: str) -> str:
+def _strip_markdown_fences(content: str) -> str:
     """
-    Remove markdown code blocks from content
-    
-    Args:
-        content: Content that may contain markdown code blocks
-        
-    Returns:
-        Content with code blocks removed
+    If the model wrapped JSON in a fenced block anywhere in the response, return the inner body.
+    Handles preamble text before the fence (e.g. 'Here is the JSON:\\n```json ...').
     """
-    if not content.startswith("```"):
-        return content
-    
-    lines = content.split("\n")
-    json_start = None
-    json_end = None
-    
-    for i, line in enumerate(lines):
-        if line.strip().startswith("```"):
-            if json_start is None:
-                json_start = i + 1
-            else:
-                json_end = i
-                break
-    
-    if json_start and json_end:
-        return "\n".join(lines[json_start:json_end])
-    elif json_start:
-        return "\n".join(lines[json_start:])
-    
+    content = content.strip()
+    fence = re.search(r"```(?:json)?\s*\n?(.*?)```", content, re.DOTALL | re.IGNORECASE)
+    if fence:
+        return fence.group(1).strip()
     return content
 
 
-def _extract_json_with_regex(content: str) -> dict:
+def _first_json_object(content: str) -> Optional[Dict]:
     """
-    Attempt to extract JSON using regex pattern matching
-    
-    Args:
-        content: Content to extract JSON from
-        
-    Returns:
-        Parsed JSON dictionary
-        
-    Raises:
-        ValueError: If JSON cannot be extracted
+    Parse the first top-level JSON object in `content` using JSONDecoder (handles nested braces
+    and quoted strings correctly; avoids greedy-regex mistakes).
     """
-    json_match = re.search(r'\{.*\}', content, re.DOTALL)
-    if json_match:
-        parsed = json.loads(json_match.group())
-        logger.info(f"[LLM] Extracted and parsed JSON: {json.dumps(parsed, indent=2)}")
-        return parsed
-    raise ValueError(ERROR_JSON_PARSE_FAILED)
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(content):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(content, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
 
 
 def extract_json_from_response(content: str) -> dict:
     """
-    Extract JSON from LLM response, handling markdown code blocks
-    
-    Args:
-        content: Raw response content from LLM
-        
-    Returns:
-        Parsed JSON dictionary
-        
-    Raises:
-        ValueError: If JSON cannot be parsed
+    Extract JSON from LLM response, handling markdown fences and leading prose.
     """
-    cleaned_content = _remove_markdown_code_blocks(content.strip())
-    
-    # Try to parse JSON directly
-    try:
-        parsed = json.loads(cleaned_content)
-        logger.info(f"[LLM] Parsed JSON: {json.dumps(parsed, indent=2)}")
-        return parsed
-    except json.JSONDecodeError:
-        # Try to extract JSON object using regex
+    if not content or not content.strip():
+        logger.error("[LLM] Empty response content for JSON extraction")
+        raise ValueError(ERROR_JSON_PARSE_FAILED)
+
+    stripped = _strip_markdown_fences(content.strip())
+
+    for candidate in (stripped, content.strip()):
         try:
-            return _extract_json_with_regex(cleaned_content)
-        except (ValueError, json.JSONDecodeError):
-            logger.error(
-                f"[LLM] Could not parse JSON from response. Content: {cleaned_content}"
-            )
-            raise ValueError(ERROR_JSON_PARSE_FAILED)
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                logger.debug("[LLM] Parsed JSON (full string)")
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        found = _first_json_object(candidate)
+        if found is not None:
+            logger.debug("[LLM] Parsed JSON (first object in string)")
+            return found
+
+    preview = stripped[:800] + ("…" if len(stripped) > 800 else "")
+    logger.error("[LLM] Could not parse JSON from response. Preview: %s", preview)
+    raise ValueError(ERROR_JSON_PARSE_FAILED)
 

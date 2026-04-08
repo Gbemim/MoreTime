@@ -119,9 +119,26 @@ export const styles = {
     color: '#666',
   } as const,
 
+  /** Summary / AI text with newlines and “- ” bullets from the backend */
+  textMultiline: {
+    margin: '4px 0 0',
+    fontSize: '14px',
+    color: '#666',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  } as const,
+
   textSmall: {
     fontSize: '12px',
     color: '#666',
+  } as const,
+
+  textSmallMultiline: {
+    fontSize: '12px',
+    color: '#666',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    marginTop: '4px',
   } as const,
 
   textTiny: {

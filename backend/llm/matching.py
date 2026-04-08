@@ -5,7 +5,7 @@ LLM integration for checking if metadata matches blocking rules
 import json
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from anthropic import Anthropic
 from anthropic.types import TextBlock
@@ -23,6 +23,24 @@ from .utils import extract_json_from_response
 from .embeddings import get_embedding, cosine_similarity
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_author_names(metadata: Dict[str, Any]) -> List[str]:
+    """Channel/uploader names from extension (list); support legacy single author_name string."""
+    raw = metadata.get("author_names")
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    legacy = metadata.get("author_name")
+    if isinstance(legacy, str) and legacy.strip():
+        return [legacy.strip()]
+    return []
+
+
+def _format_authors_for_prompt(metadata: Dict[str, Any]) -> str:
+    names = _metadata_author_names(metadata)
+    if not names:
+        return "N/A"
+    return "; ".join(names)
 
 
 def _create_anthropic_client(api_key: str) -> Anthropic:
@@ -71,6 +89,9 @@ def _format_metadata_string(metadata: Dict[str, Any], url: str) -> str:
 YouTube Video URL: {url}
 Video ID: {metadata.get('video_id', 'N/A')}
 
+Channels (uploaders / collaborations):
+- author_names: {_format_authors_for_prompt(metadata)}
+
 Open Graph Protocol Metadata (from https://ogp.me/):
 - og:title: {metadata.get('og_title', 'N/A')}
 - og:type: {metadata.get('og_type', 'N/A')}
@@ -83,7 +104,9 @@ def _youtube_ogp_insufficient(metadata: Dict[str, Any]) -> bool:
     """
     True when OGP is missing or still the generic YouTube shell (SPA not hydrated).
     In that state the model may guess and return matches: true incorrectly.
+    Non-empty author_names (e.g. from oEmbed or JSON-LD) counts as usable signal.
     """
+    has_authors = bool(_metadata_author_names(metadata))
     title = (metadata.get("og_title") or "").strip()
     desc = (metadata.get("og_description") or "").strip()
     t_low = title.lower()
@@ -91,11 +114,11 @@ def _youtube_ogp_insufficient(metadata: Dict[str, Any]) -> bool:
         {"youtube", "youtube - broadcast yourself", "youtube.com"}
     )
     if t_low in generic_titles and len(desc) < 40:
-        return True
+        return not has_authors
     if not title and len(desc) < 40:
-        return True
+        return not has_authors
     if len(title) <= 1 and len(desc) < 20:
-        return True
+        return not has_authors
     return False
 
 
@@ -228,6 +251,9 @@ def _format_metadata_for_embedding(metadata: Dict[str, Any]) -> str:
         Formatted text string
     """
     metadata_text = f"YouTube Video: {metadata.get('og_title', '')}\n"
+    author_names = _metadata_author_names(metadata)
+    if author_names:
+        metadata_text += f"Channels: {'; '.join(author_names)}\n"
     if metadata.get('og_description'):
         metadata_text += f"Description: {metadata.get('og_description', '')}\n"
     if metadata.get('og_site_name'):

@@ -26,26 +26,26 @@ def _build_generation_prompt(description: str) -> str:
     Build the prompt for generating blocking rules
     
     Args:
-        description: User's description of videos to block
+        description: Description of videos to block
         
     Returns:
         Formatted prompt string
     """
     return f"""You are helping a user create YouTube video blocking rules for productivity.
 
-The user wants to block YouTube videos based on this description:
+I will be blocking YouTube videos based on this description:
 "{description}"
 
-The blocking system uses metadata analysis to identify and block YouTube videos. The system analyzes the video's title, description, type, etc. and compares it against the user's blocking rule description using semantic similarity. If the video's metadata matches the blocking rule, it will be blocked.
+Produce:
+1. `summary` — 1-2 **short sentences** only (no lists, no line breaks inside the string — use a single paragraph).
+2. `examples` — 5-10 short strings, each one example category or video type that would be blocked.
 
-Please generate a summary that:
-1. Explains what types of YouTube videos will be blocked based on OGP metadata analysis (2-3 sentences)
-2. Includes 5-10 specific example video types or categories that would be blocked based on the user's description (e.g., "gaming walkthroughs", "entertainment vlogs", "distracting content", etc.)
-3. Mentions that the system analyzes YouTube video metadata (title, description) using Open Graph Protocol to determine if a video matches the blocking criteria
+Valid JSON requires every string on **one line** with escaped newlines if needed; **never** put raw newlines or markdown bullets inside a JSON string.
 
-Return your response as a JSON object with this exact structure:
+Return **only** one JSON object (no markdown fences, no other text), exactly:
 {{
-  "summary": "Brief explanation of what YouTube videos will be blocked, followed by a list of 5-10 example video types/categories that would be blocked (e.g., 'Examples include: gaming walkthroughs, entertainment vlogs, reaction videos, etc.')"
+  "summary": "One or two sentences explaining what will be blocked.",
+  "examples": ["Example category 1", "Example category 2", "Example category 3"]
 }}"""
 
 
@@ -114,9 +114,16 @@ async def generate_block_rules(description: str) -> GenerateRulesResponse:
         # Parse JSON using utility function
         parsed = extract_json_from_response(content)
 
-        # Validate and convert to response model
-        summary = parsed.get("summary", "").strip()
-        
+        # Validate and convert to response model (examples may be omitted by older-shaped responses)
+        summary = (parsed.get("summary") or "").strip()
+        examples = parsed.get("examples")
+        if isinstance(examples, list) and examples:
+            bullets = "\n".join(
+                f"- {str(x).strip()}" for x in examples if str(x).strip()
+            )
+            if bullets:
+                summary = f"{summary}\n\n{bullets}".strip() if summary else bullets
+
         if not summary:
             raise ValueError("Summary is required and cannot be empty")
         
