@@ -24,6 +24,10 @@ class CheckMetadataRequest(BaseModel):
     )
     rule_id: Optional[str] = Field(default=None, description="Rule id to evaluate")
     url: str = Field(..., description="Website URL")
+    metadata: Optional[dict] = Field(
+        default=None,
+        description="Optional metadata payload captured client-side",
+    )
 
 
 class CheckMetadataResponse(BaseModel):

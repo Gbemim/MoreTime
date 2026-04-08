@@ -210,7 +210,8 @@ async def check_metadata_endpoint(
 
         result = await check_metadata_matches_rule_optimized(
             user_description=user_description,
-            url=request.url
+            url=request.url,
+            metadata_override=request.metadata,
         )
         result.matched_rule_id = matched_rule_id
         logger.info(

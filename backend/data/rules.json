@@ -1,0 +1,19 @@
+{
+  "default-tenant": [
+    {
+      "id": "b3fa9d38-26db-4f29-9c0c-75f0db45c800",
+      "userDescription": "anything with John Oliver",
+      "aiSummary": "This rule will block any YouTube videos that contain the phrase 'John Oliver' in the title, description, or tags.\n\n- John Oliver Last Week Tonight\n- John Oliver's take on politics\n- Anything with John Oliver in it\n- John Oliver comedy sketches\n- John Oliver news commentary",
+      "patterns": [],
+      "schedule": {
+        "type": "duration",
+        "durationMinutes": 60,
+        "startTime": 1775648699044,
+        "daysOfWeek": null,
+        "endTime": null
+      },
+      "enabled": true,
+      "createdAt": 1775648710387
+    }
+  ]
+}

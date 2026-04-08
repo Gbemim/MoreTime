@@ -18,6 +18,16 @@ export interface CheckMetadataResult {
   evaluated_at: number;
 }
 
+export interface CheckMetadataPayload {
+  title?: string | null;
+  content_type?: string | null;
+  description?: string | null;
+  site_name?: string | null;
+  author_names?: string[];
+  url?: string;
+  video_id?: string | null;
+}
+
 const LEGACY_CONFIDENCE_THRESHOLD = 0.5;
 
 function buildHeaders(): Record<string, string> {
@@ -84,7 +94,8 @@ export async function generateRules(description: string): Promise<GenerateRulesR
 export async function checkMetadata(
   ruleId: string,
   userDescription: string,
-  url: string
+  url: string,
+  metadata?: CheckMetadataPayload
 ): Promise<CheckMetadataResult> {
   debug('check-metadata', url);
 
@@ -96,6 +107,7 @@ export async function checkMetadata(
         rule_id: ruleId,
         user_description: userDescription,
         url,
+        metadata,
       }),
     });
 

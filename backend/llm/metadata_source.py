@@ -7,7 +7,7 @@ import json
 import re
 from html import unescape
 from typing import Any, Dict, List
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, parse_qs
 from urllib.request import urlopen
 
 
@@ -38,9 +38,30 @@ def dedupe_author_names(names: List[str]) -> List[str]:
 
 
 def extract_video_id(url: str) -> str | None:
-    """Extract YouTube video ID from standard watch/share URLs."""
-    match = re.search(r"(?:youtube\.com/watch\?v=|youtu\.be/)([^&\n?#]+)", url)
-    return match.group(1) if match else None
+    """Extract YouTube video ID from watch/share/shorts URLs."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower()
+
+        # Standard watch URL: /watch?...&v=VIDEO_ID
+        if "youtube.com" in host and parsed.path == "/watch":
+            video_id = parse_qs(parsed.query).get("v", [None])[0]
+            if video_id:
+                return video_id
+
+        # Shorts URL: /shorts/VIDEO_ID
+        if "youtube.com" in host and parsed.path.startswith("/shorts/"):
+            short_id = parsed.path.split("/shorts/", 1)[1].split("/", 1)[0]
+            return short_id or None
+
+        # Share URL: youtu.be/VIDEO_ID
+        if "youtu.be" in host:
+            path_id = parsed.path.strip("/").split("/", 1)[0]
+            return path_id or None
+    except Exception:
+        return None
+
+    return None
 
 
 async def fetch_youtube_oembed_metadata(url: str) -> Dict[str, Any] | None:

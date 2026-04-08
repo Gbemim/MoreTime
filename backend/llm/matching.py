@@ -144,7 +144,8 @@ IMPORTANT:
 
 async def check_metadata_matches_rule(
     user_description: str,
-    url: str
+    url: str,
+    metadata_override: Dict[str, Any] | None = None,
 ) -> CheckMetadataResponse:
     """
     Use LLM to check if website metadata matches the user's rule description
@@ -163,7 +164,9 @@ async def check_metadata_matches_rule(
         from .graphs.check_metadata_graph import get_check_metadata_graph
 
         # Metadata is resolved oEmbed-first with OGP fallback into normalized fields.
-        effective_metadata = await resolve_metadata(url)
+        effective_metadata = (
+            metadata_override if isinstance(metadata_override, dict) else await resolve_metadata(url)
+        )
 
         graph = get_check_metadata_graph()
         result = await graph.ainvoke(
@@ -216,7 +219,8 @@ def _format_metadata_for_embedding(metadata: Dict[str, Any]) -> str:
 
 async def check_metadata_matches_rule_optimized(
     user_description: str,
-    url: str
+    url: str,
+    metadata_override: Dict[str, Any] | None = None,
 ) -> CheckMetadataResponse:
     """
     Optimized hybrid approach: Use embeddings for fast check, LLM only when needed
@@ -231,6 +235,7 @@ async def check_metadata_matches_rule_optimized(
     return await check_metadata_matches_rule(
         user_description=user_description,
         url=url,
+        metadata_override=metadata_override,
     )
 
 

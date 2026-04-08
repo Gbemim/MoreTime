@@ -6,6 +6,25 @@ sequenceDiagram
   loop each active rule
     Content script->>Background: CHECK_METADATA (+ metadata, url, description)
     Background->>Backend API: POST /check-metadata
+    Backend API->>Metadata resolver: resolve_metadata(url)
+    Metadata resolver->>YouTube oEmbed: fetch metadata
+    alt oEmbed failed (None)
+      Metadata resolver->>YouTube page HTML: fetch OGP fallback
+    end
+    note over Metadata resolver: OGP is attempted only when oEmbed fails, not when oEmbed is low quality
+    Metadata resolver-->>Backend API: normalized metadata
+    Backend API->>LangGraph check_metadata: run graph with resolved metadata
+    LangGraph check_metadata->>LangGraph check_metadata: metadata_quality_guard
+    alt metadata insufficient
+      LangGraph check_metadata->>LangGraph check_metadata: finalize (skip embeddings + LLM)
+    else metadata usable
+      LangGraph check_metadata->>LangGraph check_metadata: embedding_similarity
+      alt similarity >= high threshold
+        LangGraph check_metadata->>LangGraph check_metadata: high_similarity_decision -> finalize
+      else similarity < high threshold
+        LangGraph check_metadata->>LangGraph check_metadata: llm_decision -> finalize
+      end
+    end
     Backend API-->>Background: matches, confidence, reasoning
     Background-->>Content script: result
     alt matches and confidence ≥ threshold

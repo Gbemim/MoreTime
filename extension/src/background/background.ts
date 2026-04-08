@@ -142,7 +142,8 @@ async function handleMessage(
       const checkResult = await checkMetadata(
         message.rule_id as string,
         message.user_description as string,
-        message.url as string
+        message.url as string,
+        message.metadata as Record<string, unknown> | undefined
       );
       return { success: true, result: checkResult };
     }
@@ -158,6 +159,7 @@ async function handleMessage(
           rule: message.rule as string,
           scheduleType: message.scheduleType as string,
           timeRemaining: message.timeRemaining as string | undefined,
+          blockEndsAt: message.blockEndsAt as number | undefined,
           description: message.description as string | undefined,
         });
         return { success: true };

@@ -6,6 +6,7 @@
 
 import { BlockRule } from '../types';
 import { buildBlockedUrl } from '../utils/url-builder';
+import { extractPageMetadata } from './metadata-extractor';
 import {
   EXTENSION_VERBOSE_LOGS,
   MESSAGE_TYPES,
@@ -124,6 +125,68 @@ function getScheduleTypeDisplay(scheduleType: 'duration' | 'daily'): string {
   return scheduleType === 'duration' ? 'Duration Block' : 'Daily Schedule';
 }
 
+function formatRemainingTime(totalSeconds: number): string {
+  if (totalSeconds <= 0) return '0m';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function parseTimeToMinutes(timeStr: string): number {
+  const [hour, minute] = timeStr.split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+function getTimeRemainingText(rule: BlockRule): string {
+  if (rule.schedule.type === 'duration') {
+    const endTime = rule.schedule.startTime + rule.schedule.durationMinutes * 60 * 1000;
+    const remainingSeconds = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+    return formatRemainingTime(remainingSeconds);
+  }
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = parseTimeToMinutes(rule.schedule.startTime);
+  const endMinutes = parseTimeToMinutes(rule.schedule.endTime);
+
+  // Rule is active before redirect, so this should represent the current active window.
+  let remainingMinutes: number;
+  if (endMinutes < startMinutes) {
+    remainingMinutes = currentMinutes >= startMinutes
+      ? (24 * 60 - currentMinutes) + endMinutes
+      : endMinutes - currentMinutes;
+  } else {
+    remainingMinutes = endMinutes - currentMinutes;
+  }
+
+  const remainingSeconds = Math.max(0, remainingMinutes * 60 - now.getSeconds());
+  return formatRemainingTime(remainingSeconds);
+}
+
+function getBlockEndsAt(rule: BlockRule): number | undefined {
+  if (rule.schedule.type === 'duration') {
+    return rule.schedule.startTime + rule.schedule.durationMinutes * 60 * 1000;
+  }
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = parseTimeToMinutes(rule.schedule.startTime);
+  const endMinutes = parseTimeToMinutes(rule.schedule.endTime);
+
+  const endDate = new Date(now);
+  if (endMinutes < startMinutes) {
+    if (currentMinutes >= startMinutes) {
+      endDate.setDate(endDate.getDate() + 1);
+    }
+  }
+  endDate.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+  return endDate.getTime();
+}
+
 /**
  * Handle blocking when a video matches a rule
  * 
@@ -135,6 +198,8 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
 
   const scheduleType = getScheduleTypeDisplay(rule.schedule.type);
   const description = reasoning || 'This YouTube video matches your blocking rule.';
+  const timeRemaining = getTimeRemainingText(rule);
+  const blockEndsAt = getBlockEndsAt(rule);
   
   if (!isExtensionContextValid()) return;
 
@@ -144,7 +209,8 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
       type: MESSAGE_TYPES.REDIRECT_TO_BLOCKED,
       rule: rule.userDescription,
       scheduleType,
-      timeRemaining: 'N/A',
+      timeRemaining,
+      blockEndsAt,
       description,
     });
     debug('Redirect requested via background script');
@@ -155,7 +221,8 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
     const blockedUrl = buildBlockedUrl({
       rule: rule.userDescription,
       scheduleType,
-      timeRemaining: 'N/A',
+      timeRemaining,
+      blockEndsAt,
       description,
     });
     window.location.replace(blockedUrl);
@@ -178,11 +245,13 @@ async function checkRuleMatch(
   debug(`Checking against rule: "${rule.userDescription}"`);
   
   try {
+    const pageMetadata = extractPageMetadata();
     const response = await chrome.runtime.sendMessage({
       type: MESSAGE_TYPES.CHECK_METADATA,
       rule_id: rule.id,
       user_description: rule.userDescription,
       url,
+      metadata: pageMetadata,
     });
 
     if (!response || !response.success || !response.result) {

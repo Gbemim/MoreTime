@@ -9,6 +9,7 @@ export interface RedirectParams {
   rule: string;
   scheduleType: string;
   timeRemaining?: string;
+  blockEndsAt?: number;
   description?: string;
 }
 

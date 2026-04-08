@@ -8,17 +8,35 @@ function getBlockInfoFromURL() {
   const ruleName = params.get('rule') || 'Unknown Rule';
   const scheduleType = params.get('scheduleType') || 'Unknown';
   const timeRemaining = params.get('timeRemaining') || 'Unknown';
+  const blockEndsAtRaw = params.get('blockEndsAt');
   const description = params.get('description') || 'This website is blocked according to your settings.';
+  const blockEndsAt = blockEndsAtRaw ? Number(blockEndsAtRaw) : null;
 
   return {
     ruleName: decodeURIComponent(ruleName),
     scheduleType: decodeURIComponent(scheduleType),
     timeRemaining: decodeURIComponent(timeRemaining),
+    blockEndsAt: Number.isFinite(blockEndsAt) ? blockEndsAt : null,
     description: decodeURIComponent(description),
   };
 }
 
-function formatTimeRemaining(timeRemaining) {
+function formatTimeRemainingFromSeconds(totalSeconds) {
+  if (totalSeconds <= 0) return '0m';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function formatTimeRemaining(timeRemaining, blockEndsAt) {
+  if (typeof blockEndsAt === 'number') {
+    const remainingSeconds = Math.max(0, Math.floor((blockEndsAt - Date.now()) / 1000));
+    return formatTimeRemainingFromSeconds(remainingSeconds);
+  }
   if (timeRemaining === 'Unknown' || timeRemaining === 'N/A') {
     return 'Active';
   }
@@ -29,20 +47,13 @@ function updatePage() {
   const info = getBlockInfoFromURL();
 
   const ruleNameEl = document.getElementById('rule-name');
-  const scheduleTypeEl = document.getElementById('schedule-type');
+  const blockedBecauseEl = document.getElementById('blocked-because');
   const timeRemainingEl = document.getElementById('time-remaining');
-  const descriptionEl = document.getElementById('description');
 
   if (ruleNameEl) ruleNameEl.textContent = info.ruleName;
-  if (scheduleTypeEl) scheduleTypeEl.textContent = info.scheduleType;
-  if (timeRemainingEl) timeRemainingEl.textContent = formatTimeRemaining(info.timeRemaining);
-  if (descriptionEl) descriptionEl.textContent = info.description;
-
-  if (info.scheduleType === 'Daily Schedule' && info.timeRemaining === 'Active') {
-    const timeInfo = document.getElementById('time-info');
-    if (timeInfo) {
-      timeInfo.style.display = 'none';
-    }
+  if (blockedBecauseEl) blockedBecauseEl.textContent = info.description;
+  if (timeRemainingEl) {
+    timeRemainingEl.textContent = formatTimeRemaining(info.timeRemaining, info.blockEndsAt);
   }
 }
 
@@ -53,8 +64,5 @@ if (document.readyState === 'loading') {
 }
 
 setInterval(function () {
-  const info = getBlockInfoFromURL();
-  if (info.scheduleType === 'Duration Block') {
-    updatePage();
-  }
+  updatePage();
 }, 1000);
