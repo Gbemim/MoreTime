@@ -39,3 +39,5 @@ Thumbs.db
 *.pem
 
 .idea/
+
+extension/moretime-extension-store.zip

@@ -3,7 +3,7 @@
  */
 
 // Backend Configuration (local server; env lives only in backend/.env)
-export const BACKEND_URL = 'http://localhost:8000';
+export const BACKEND_URL = 'https://moretime-production.up.railway.app';
 
 /** Set true locally to trace in production builds; `vite` dev always traces via import.meta.env.DEV. */
 export const EXTENSION_VERBOSE_LOGS = true;

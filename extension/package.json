@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "pack:store": "vite build && node scripts/pack-store.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",

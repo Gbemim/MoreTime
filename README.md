@@ -95,7 +95,9 @@ MoreTime/
    - Click "Load unpacked"
    - Select the `extension/dist` directory
 
-5. The extension uses `http://localhost:8000` by default. To use a different backend, edit `BACKEND_URL` in `extension/src/constants.ts` and rebuild.
+5. **Chrome Web Store:** Upload a package whose **root** is the contents of `extension/dist` (not the raw `extension/` source tree). After `npm run build`, confirm `extension/dist/content/metadata-checker.js` exists next to `manifest.json`. To build and zip in one step: `npm run pack:store` (requires the `zip` CLI; writes `extension/moretime-extension-store.zip`).
+
+6. The extension uses `http://localhost:8000` by default. To use a different backend, edit `BACKEND_URL` in `extension/src/constants.ts` and rebuild.
 
 ## Usage
 
