@@ -56,7 +56,6 @@ def _extract_text_from_response(message) -> str:
     return content
 
 
-## edit
 def _format_metadata_string(metadata: Dict[str, Any], url: str) -> str:
     """
     Format metadata dictionary into a readable string
@@ -80,6 +79,26 @@ Open Graph Protocol Metadata (from https://ogp.me/):
 """
 
 
+def _youtube_ogp_insufficient(metadata: Dict[str, Any]) -> bool:
+    """
+    True when OGP is missing or still the generic YouTube shell (SPA not hydrated).
+    In that state the model may guess and return matches: true incorrectly.
+    """
+    title = (metadata.get("og_title") or "").strip()
+    desc = (metadata.get("og_description") or "").strip()
+    t_low = title.lower()
+    generic_titles = frozenset(
+        {"youtube", "youtube - broadcast yourself", "youtube.com"}
+    )
+    if t_low in generic_titles and len(desc) < 40:
+        return True
+    if not title and len(desc) < 40:
+        return True
+    if len(title) <= 1 and len(desc) < 20:
+        return True
+    return False
+
+
 def _build_matching_prompt(user_description: str, metadata_str: str) -> str:
     """
     Build the prompt for checking metadata matches
@@ -100,9 +119,9 @@ YouTube Video Open Graph Protocol Metadata:
 {metadata_str}
 
 Determine if this YouTube video matches the user's blocking rule. Consider:
-- The video's title and description (from og:title and og:description)
-- The video's content category and topic
-- Whether it falls into the category the user wants to block
+- The video's title and description
+- The video's content and topic
+- Whether it falls into what the user wants to block
 - The context and intent of the user's rule
 
 Return your response as a JSON object with this exact structure:
@@ -115,10 +134,12 @@ Return your response as a JSON object with this exact structure:
 IMPORTANT:
 - This is specifically for YouTube videos - focus on video content, not general websites
 - Be strict - only return matches: true if the video clearly falls under the user's blocking rule
-- If matches: true, your confidence should be at least 0.7 (you should be confident when blocking)
+- If matches: true, your confidence should be at least 0.5 (you should be confident when blocking)
 - If matches: false, confidence can be lower (it's okay to be uncertain about non-matches)
 - Confidence represents how sure you are that your matches decision is correct
-- Use the Open Graph Protocol metadata (og:title, og:description) as the primary source of information"""
+- Use the Open Graph Protocol metadata (og:title, og:description) as the primary source of information
+- If og:title is only the generic word \"YouTube\" (or empty) and og:description is missing or generic, you MUST return matches: false — do not infer video topic from the platform name
+- Do not treat marketing boilerplate in the description (e.g. \"Enjoy the videos and music you love\") as evidence the video matches the rule"""
 
 
 async def check_metadata_matches_rule(
@@ -140,6 +161,17 @@ async def check_metadata_matches_rule(
     Raises:
         ValueError: If API key is not set or check fails
     """
+    if _youtube_ogp_insufficient(metadata):
+        logger.info("[LLM] Skipping model call — OGP insufficient (generic/stale)")
+        return CheckMetadataResponse(
+            matches=False,
+            confidence=0.9,
+            reasoning=(
+                "Video metadata is not loaded or only shows a generic YouTube placeholder; "
+                "cannot evaluate the rule — not blocking."
+            ),
+        )
+
     api_key = require_anthropic_api_key()
     metadata_str = _format_metadata_string(metadata, url)
     prompt = _build_matching_prompt(user_description, metadata_str)
@@ -153,14 +185,12 @@ async def check_metadata_matches_rule(
         )
 
     try:
-        logger.info(f"[LLM] Checking metadata match for URL: {url}")
-        logger.info(f"[LLM] User description: {user_description}")
-        logger.info(f"[LLM] Metadata: {json.dumps(metadata, indent=2)}")
-        
+        logger.info("[LLM] Checking metadata match for URL: %s", url)
+        logger.debug("[LLM] User description: %s", user_description)
+        logger.debug("[LLM] Metadata: %s", json.dumps(metadata, indent=2))
         message = await asyncio.to_thread(_call_anthropic)
         content = _extract_text_from_response(message)
-        
-        logger.info(f"[LLM] Raw LLM response:\n{content}")
+        logger.debug("[LLM] Raw LLM response:\n%s", content)
 
         # Parse JSON using utility function
         parsed = extract_json_from_response(content)
@@ -223,19 +253,30 @@ async def check_metadata_matches_rule_optimized(
     """
     logger.info(f"[OPTIMIZED] Checking URL: {url}")
     logger.info(f"[OPTIMIZED] User description: {user_description}")
-    
+
+    if _youtube_ogp_insufficient(metadata):
+        logger.info("[OPTIMIZED] Skipping embeddings/LLM — OGP insufficient (generic/stale)")
+        return CheckMetadataResponse(
+            matches=False,
+            confidence=0.9,
+            reasoning=(
+                "Video metadata is not loaded or only shows a generic YouTube placeholder; "
+                "cannot evaluate the rule — not blocking."
+            ),
+        )
+
     metadata_text = _format_metadata_for_embedding(metadata)
-    
+
     # Fast embedding check
     try:
         logger.info("[OPTIMIZED] Computing embeddings...")
         rule_embedding = await get_embedding(user_description)
         metadata_embedding = await get_embedding(metadata_text)
         similarity = cosine_similarity(rule_embedding, metadata_embedding)
-        
+
         logger.info(f"[OPTIMIZED] Embedding similarity: {similarity:.3f}")
-        
-        # High confidence - return immediately
+
+        # High similarity — fast path to block (embedding agrees with rule)
         if similarity >= HIGH_SIMILARITY_THRESHOLD:
             logger.info(
                 f"[OPTIMIZED] High similarity ({similarity:.1%}) - "
@@ -246,25 +287,24 @@ async def check_metadata_matches_rule_optimized(
                 confidence=float(similarity),
                 reasoning=f"High semantic similarity ({similarity:.1%})"
             )
-        
-        # Low confidence - definitely doesn't match
+
+        # Below high threshold: never auto-reject on low embedding similarity —
+        # cosine distance often misses lexical overlaps (e.g. rule vs. title phrasing).
         if similarity < LOW_SIMILARITY_THRESHOLD:
             logger.info(
-                f"[OPTIMIZED] Low similarity ({similarity:.1%}) - not blocking"
+                f"[OPTIMIZED] Low embedding similarity ({similarity:.1%}) - "
+                f"using LLM (embeddings are not used to auto-reject)"
             )
-            return CheckMetadataResponse(
-                matches=False,
-                confidence=float(1.0 - similarity),
-                reasoning=f"Low similarity ({similarity:.1%}) - does not match"
+        else:
+            logger.info(
+                f"[OPTIMIZED] Medium similarity ({similarity:.1%}) - "
+                f"using LLM for decision"
             )
-        
-        # Medium confidence - use LLM for accurate decision
-        logger.info(
-            f"[OPTIMIZED] Medium similarity ({similarity:.1%}) - "
-            f"using LLM for decision"
+
+        return await check_metadata_matches_rule(
+            user_description, metadata, url
         )
-        return await check_metadata_matches_rule(user_description, metadata, url)
-        
+
     except Exception as e:
         # Fallback to LLM if embeddings fail
         logger.warning(f"[OPTIMIZED] Embedding check failed, using LLM: {e}")

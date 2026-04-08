@@ -1,7 +1,7 @@
 /**
  * Content script that checks if YouTube video matches blocking rules
  * Only runs on YouTube video pages (youtube.com/watch*)
- * Uses Open Graph Protocol metadata to determine if video should be blocked
+ * Resolves title/channel via YouTube oEmbed first (instant), then page OGP if needed
  */
 
 import { extractPageMetadata, YouTubeVideoMetadata } from './metadata-extractor';
@@ -10,14 +10,70 @@ import { buildBlockedUrl } from '../utils/url-builder';
 import {
   METADATA_CACHE_TTL,
   CONFIDENCE_THRESHOLD,
+  EXTENSION_VERBOSE_LOGS,
   MESSAGE_TYPES,
   YOUTUBE_HOSTNAME,
   YOUTUBE_WATCH_PATH,
   NAVIGATION_CHECK_DELAY,
 } from '../constants';
 
+/**
+ * Logging stays in this file (not ../utils/logger): the content script is rewritten into a
+ * Chrome IIFE by vite.config.ts, which inlines only some chunks and strips imports—importing
+ * the shared logger would drop the function definitions and leave bare debug() calls.
+ */
+const isVerbose = import.meta.env.DEV || EXTENSION_VERBOSE_LOGS;
+function debug(...args: unknown[]): void {
+  if (!isVerbose) return;
+  console.log('[MoreTime]', ...args);
+}
+function logError(...args: unknown[]): void {
+  console.error('[MoreTime]', ...args);
+}
+
 // Cache to avoid checking same YouTube video multiple times
 const metadataCache = new Map<string, { metadata: YouTubeVideoMetadata; timestamp: number }>();
+
+/** One debounced check after navigation signals; delay lets OGP tags catch up. */
+let checkTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Last watch ?v= we scheduled for — yt-navigate-finish fires often for the same video; ignore duplicates. */
+let lastScheduledVideoId: string | null = null;
+
+function scheduleCheck(): void {
+  if (checkTimer !== null) {
+    clearTimeout(checkTimer);
+  }
+  checkTimer = setTimeout(() => {
+    checkTimer = null;
+    void checkPageAgainstRules();
+  }, NAVIGATION_CHECK_DELAY);
+}
+
+/**
+ * Only re-debounce when the watch URL's video id changes (or we left /watch).
+ * Otherwise yt-navigate-finish would reset the timer forever and starve checks.
+ */
+function scheduleCheckOnWatchVideoChange(): void {
+  if (!isYouTubeVideoPage()) {
+    lastScheduledVideoId = null;
+    return;
+  }
+  const vid = new URLSearchParams(window.location.search).get('v');
+  if (vid !== null && vid === lastScheduledVideoId) {
+    return;
+  }
+  lastScheduledVideoId = vid;
+  scheduleCheck();
+}
+
+/**
+ * YouTube watch: `yt-navigate-finish` after real navigations; `popstate` for back/forward.
+ */
+function installWatchNavListeners(): void {
+  window.addEventListener('popstate', scheduleCheckOnWatchVideoChange);
+  document.addEventListener('yt-navigate-finish', scheduleCheckOnWatchVideoChange);
+}
 
 /**
  * Returns true if the extension context is still valid (extension not reloaded/disabled).
@@ -64,24 +120,35 @@ function isYouTubeVideoPage(): boolean {
 //   );
 // }
 
+async function fetchOembedFromBackground(watchUrl: string): Promise<YouTubeVideoMetadata | null> {
+  if (!isExtensionContextValid()) return null;
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: MESSAGE_TYPES.GET_YOUTUBE_OEMBED_METADATA,
+      watchUrl,
+    })) as { success?: boolean; metadata?: YouTubeVideoMetadata };
+    if (!response?.success || !response.metadata) return null;
+    return response.metadata;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Get metadata from cache or extract it
- * 
- * @param cacheKey - Cache key for the metadata
- * @returns YouTube video metadata
+ * Resolve metadata: oEmbed via background (not blocked by page CSP), then DOM OGP fallback.
  */
-function getMetadata(cacheKey: string): YouTubeVideoMetadata {
+async function getMetadata(cacheKey: string, watchUrl: string): Promise<YouTubeVideoMetadata> {
   const cached = metadataCache.get(cacheKey);
-  
+
   if (cached && Date.now() - cached.timestamp < METADATA_CACHE_TTL) {
-    console.log('[MoreTime] Using cached YouTube video metadata');
+    debug('Using cached YouTube video metadata');
     return cached.metadata;
   }
-  
-  // Extract OGP metadata from YouTube video page
-  const metadata = extractPageMetadata();
+
+  const fromOembed = await fetchOembedFromBackground(watchUrl);
+  const metadata = fromOembed ?? extractPageMetadata();
   metadataCache.set(cacheKey, { metadata, timestamp: Date.now() });
-  console.log('[MoreTime] Extracted YouTube video OGP metadata:', metadata);
+  debug('YouTube metadata:', fromOembed ? 'oEmbed' : 'DOM OGP', metadata);
   return metadata;
 }
 
@@ -102,11 +169,8 @@ function getScheduleTypeDisplay(scheduleType: 'duration' | 'daily'): string {
  * @param reasoning - Reasoning from the backend
  */
 async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void> {
-  console.log(`[MoreTime] YouTube video matches rule - BLOCKING`);
-  
-  // Stop any ongoing page loads
-  window.stop();
-  
+  debug('YouTube video matches rule — blocking');
+
   const scheduleType = getScheduleTypeDisplay(rule.schedule.type);
   const description = reasoning || 'This YouTube video matches your blocking rule.';
   
@@ -121,10 +185,10 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
       timeRemaining: 'N/A',
       description,
     });
-    console.log('[MoreTime] Redirect requested via background script');
+    debug('Redirect requested via background script');
   } catch (error) {
     if (isContextInvalidatedError(error)) return;
-    console.error('[MoreTime] Failed to request redirect:', error);
+    logError('Failed to request redirect:', error);
     // If background redirect fails, try direct redirect as last resort
     const blockedUrl = buildBlockedUrl({
       rule: rule.userDescription,
@@ -151,7 +215,7 @@ async function checkRuleMatch(
 ): Promise<boolean> {
   if (!isExtensionContextValid()) return false;
 
-  console.log(`[MoreTime] Checking against rule: "${rule.userDescription}"`);
+  debug(`Checking against rule: "${rule.userDescription}"`);
   
   try {
     const response = await chrome.runtime.sendMessage({
@@ -162,16 +226,16 @@ async function checkRuleMatch(
     });
 
     if (!response || !response.success || !response.result) {
-      console.error(`[MoreTime] Background script error:`, response?.error || 'Unknown error');
+      logError('Background script error:', response?.error || 'Unknown error');
       return false;
     }
 
     const result = response.result;
-    console.log('[MoreTime] Backend response:', result);
-    console.log(
-      `[MoreTime] matches: ${result.matches}, ` +
-      `confidence: ${result.confidence}, threshold: ${CONFIDENCE_THRESHOLD}`
-    );
+    debug('Metadata check result:', {
+      matches: result.matches,
+      confidence: result.confidence,
+      threshold: CONFIDENCE_THRESHOLD,
+    });
     
     // Block if matches=True and confidence meets threshold
     if (result.matches && result.confidence >= CONFIDENCE_THRESHOLD) {
@@ -179,14 +243,14 @@ async function checkRuleMatch(
       return true;
     }
     
-    console.log(
-      `[MoreTime] YouTube video does not match ` +
-      `(matches: ${result.matches}, confidence: ${result.confidence} < ${CONFIDENCE_THRESHOLD})`
+    debug(
+      'YouTube video does not match',
+      { matches: result.matches, confidence: result.confidence, threshold: CONFIDENCE_THRESHOLD }
     );
     return false;
   } catch (error) {
     if (isContextInvalidatedError(error)) return false;
-    console.error('[MoreTime] Error checking metadata:', error);
+    logError('Error checking metadata:', error);
     return false;
   }
 }
@@ -208,7 +272,7 @@ async function checkPageAgainstRules(): Promise<void> {
     //   return;
     // }
     
-    console.log('[MoreTime] Checking YouTube video against rules...');
+    debug('Checking YouTube video against rules…');
     
     // Get active rules from background
     const response = await chrome.runtime.sendMessage({ 
@@ -216,7 +280,7 @@ async function checkPageAgainstRules(): Promise<void> {
     });
     
     if (!response || !response.success || !response.rules || response.rules.length === 0) {
-      console.log('[MoreTime] No active rules found');
+      debug('No active rules found');
       return;
     }
 
@@ -224,12 +288,10 @@ async function checkPageAgainstRules(): Promise<void> {
     const url = window.location.href;
     const domain = window.location.hostname;
 
-    console.log(`[MoreTime] Found ${activeRules.length} active rule(s) for URL: ${url}`);
-    console.log('[MoreTime] Active rules:', activeRules.map(r => r.userDescription));
+    debug(`Found ${activeRules.length} active rule(s)`, url, activeRules.map((r) => r.userDescription));
 
-    // Get metadata (from cache or extract)
     const cacheKey = `${domain}-${url}`;
-    const metadata = getMetadata(cacheKey);
+    const metadata = await getMetadata(cacheKey, url);
 
     // Check against each active rule
     for (const rule of activeRules) {
@@ -239,28 +301,20 @@ async function checkPageAgainstRules(): Promise<void> {
       }
     }
     
-    console.log('[MoreTime] YouTube video check complete - not blocked');
+    debug('YouTube video check complete — not blocked');
   } catch (error) {
     if (isContextInvalidatedError(error)) return;
-    console.error('[MoreTime] Error checking YouTube video metadata:', error);
+    logError('Error checking YouTube video metadata:', error);
   }
 }
 
-// Run check when page is loaded
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', checkPageAgainstRules);
+  document.addEventListener('DOMContentLoaded', () => {
+    installWatchNavListeners();
+    scheduleCheckOnWatchVideoChange();
+  });
 } else {
-  checkPageAgainstRules();
+  installWatchNavListeners();
+  scheduleCheckOnWatchVideoChange();
 }
-
-// Also check on navigation (for SPAs)
-let lastUrl = location.href;
-new MutationObserver(() => {
-  if (!isExtensionContextValid()) return;
-  const url = location.href;
-  if (url !== lastUrl) {
-    lastUrl = url;
-    setTimeout(checkPageAgainstRules, NAVIGATION_CHECK_DELAY);
-  }
-}).observe(document, { subtree: true, childList: true });
 

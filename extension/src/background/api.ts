@@ -4,6 +4,7 @@
 
 import { GenerateRulesResponse } from '../types';
 import { BACKEND_URL } from '../constants';
+import { debug, error as logError } from '../utils/logger';
 
 export interface CheckMetadataResult {
   matches: boolean;
@@ -49,17 +50,20 @@ export async function generateRules(description: string): Promise<GenerateRulesR
  * @param userDescription - User's blocking rule description
  * @param metadata - Website metadata to check
  * @param url - Website URL
+ * @param videoTitle - Video title (optional enricher for backend)
+ * @param videoDescription - Video description (optional enricher for backend)
  * @returns Promise resolving to check result
  * @throws Error if the request fails
  */
 export async function checkMetadata(
   userDescription: string,
   metadata: Record<string, unknown>,
-  url: string
+  url: string,
+  videoTitle: string,
+  videoDescription: string
 ): Promise<CheckMetadataResult> {
-  console.log(`[Background] Checking metadata for URL: ${url}`);
-  console.log(`[Background] User description: ${userDescription}`);
-  
+  debug('check-metadata', url);
+
   try {
     const response = await fetch(`${BACKEND_URL}/check-metadata`, {
       method: 'POST',
@@ -70,17 +74,22 @@ export async function checkMetadata(
         user_description: userDescription,
         metadata,
         url,
+        videoDescription,
+        videoTitle
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Background] Backend error (${response.status}):`, errorText);
+      logError(`Backend error (${response.status}):`, errorText);
       throw new Error(`Backend error (${response.status}): ${errorText || response.statusText}`);
     }
 
     const result = await response.json();
-    console.log(`[Background] Backend response:`, result);
+    debug('check-metadata done', {
+      matches: result.matches,
+      confidence: result.confidence,
+    });
     return result;
   } catch (error) {
     if (error instanceof Error) {
@@ -89,4 +98,3 @@ export async function checkMetadata(
     throw new Error(`Failed to check metadata: ${String(error)}`);
   }
 }
-

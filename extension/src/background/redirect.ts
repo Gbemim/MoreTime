@@ -3,6 +3,7 @@
  */
 
 import { buildBlockedUrl } from '../utils/url-builder';
+import { debug } from '../utils/logger';
 
 export interface RedirectParams {
   rule: string;
@@ -22,7 +23,7 @@ export async function redirectToBlocked(
   params: RedirectParams
 ): Promise<void> {
   const blockedUrl = buildBlockedUrl(params);
-  console.log(`[MoreTime] Redirecting tab ${tabId} to: ${blockedUrl}`);
+  debug('Redirecting tab', tabId, blockedUrl);
   await chrome.tabs.update(tabId, { url: blockedUrl });
 }
 

@@ -6,10 +6,12 @@
 
 import { BlockRule } from '../types';
 import { MESSAGE_TYPES, ALARM_NAMES } from '../constants';
+import { debug, error as logError } from '../utils/logger';
 import { getRules, saveRules } from './storage';
 import { filterActiveRules } from './utils';
 import { generateRules, checkMetadata } from './api';
 import { redirectToBlocked } from './redirect';
+import { fetchYoutubeOEmbedMetadata } from '../youtube-oembed';
 
 
 /**
@@ -34,18 +36,18 @@ async function applyBlockingRules(activeRules: BlockRule[]): Promise<void> {
         await chrome.declarativeNetRequest.updateDynamicRules({
           removeRuleIds: existingRuleIds,
         });
-        console.log(`[MoreTime] Removed ${existingRuleIds.length} legacy URL-based rule(s)`);
+        debug(`Removed ${existingRuleIds.length} legacy URL-based rule(s)`);
       }
     }
 
     // Metadata-based blocking is handled by content scripts
     if (activeRules.length > 0) {
-      console.log(`[MoreTime] ${activeRules.length} active rule(s) - blocking via metadata analysis`);
+      debug(`${activeRules.length} active rule(s) — blocking via metadata analysis`);
     } else {
-      console.log('[MoreTime] No active blocking rules');
+      debug('No active blocking rules');
     }
   } catch (error) {
-    console.error('[MoreTime] Error applying blocking rules:', error);
+    logError('Error applying blocking rules:', error);
   }
 }
 
@@ -109,11 +111,19 @@ async function handleMessage(
       return { success: true };
     }
 
+    case MESSAGE_TYPES.GET_YOUTUBE_OEMBED_METADATA: {
+      const watchUrl = message.watchUrl as string;
+      const metadata = await fetchYoutubeOEmbedMetadata(watchUrl);
+      return { success: true, metadata };
+    }
+
     case MESSAGE_TYPES.CHECK_METADATA: {
       const checkResult = await checkMetadata(
         message.user_description as string,
         message.metadata as Record<string, unknown>,
-        message.url as string
+        message.url as string,
+        (message.videoTitle as string) ?? '',
+        (message.videoDescription as string) ?? ''
       );
       return { success: true, result: checkResult };
     }
@@ -133,7 +143,7 @@ async function handleMessage(
         });
         return { success: true };
       } catch (error) {
-        console.error('[MoreTime] Error redirecting:', error);
+        logError('Error redirecting:', error);
         return { success: false, error: (error as Error).message };
       }
     }
@@ -152,6 +162,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const response = await handleMessage(message, sender);
       sendResponse(response);
     } catch (error) {
+      logError('Message handler error:', error);
       sendResponse({ 
         success: false, 
         error: error instanceof Error ? error.message : String(error) 
