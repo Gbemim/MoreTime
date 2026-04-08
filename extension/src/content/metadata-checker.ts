@@ -263,13 +263,25 @@ async function checkPageAgainstRules(): Promise<void> {
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
+function initializeMetadataChecker(): void {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      installWatchNavListeners();
+      scheduleCheckOnWatchVideoChange();
+    });
+  } else {
     installWatchNavListeners();
     scheduleCheckOnWatchVideoChange();
-  });
+  }
+}
+
+const GLOBAL_INIT_KEY = '__moretimeMetadataCheckerInitialized__';
+const windowWithInitFlag = window as unknown as Record<string, unknown>;
+
+if (!windowWithInitFlag[GLOBAL_INIT_KEY]) {
+  windowWithInitFlag[GLOBAL_INIT_KEY] = true;
+  initializeMetadataChecker();
 } else {
-  installWatchNavListeners();
-  scheduleCheckOnWatchVideoChange();
+  debug('Metadata checker already initialized on this page');
 }
 

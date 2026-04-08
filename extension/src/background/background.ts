@@ -62,6 +62,35 @@ async function evaluateAndUpdateRules(): Promise<void> {
   await applyBlockingRules(activeRules);
 }
 
+/** Inject metadata checker into one tab. */
+async function ensureMetadataCheckerInjected(tabId: number): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content/metadata-checker.js'],
+    });
+    debug(`Injected metadata checker into tab ${tabId}`);
+  } catch (error) {
+    // Ignore tabs where injection is not allowed (e.g., special pages/races).
+    debug(`Skipping injection for tab ${tabId}:`, error);
+  }
+}
+
+/** Inject into YouTube tabs that were already open. */
+async function injectIntoExistingYouTubeTabs(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({ url: ['https://www.youtube.com/*'] });
+    await Promise.all(
+      tabs
+        .map((tab) => tab.id)
+        .filter((id): id is number => typeof id === 'number')
+        .map((id) => ensureMetadataCheckerInjected(id))
+    );
+  } catch (error) {
+    logError('Failed to inject into existing YouTube tabs:', error);
+  }
+}
+
 /**
  * Handle message from popup or content scripts
  */
@@ -168,11 +197,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  */
 chrome.runtime.onStartup.addListener(() => {
   evaluateAndUpdateRules();
+  injectIntoExistingYouTubeTabs();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   evaluateAndUpdateRules();
+  injectIntoExistingYouTubeTabs();
 });
 
 // Initial evaluation
 evaluateAndUpdateRules();
+injectIntoExistingYouTubeTabs();

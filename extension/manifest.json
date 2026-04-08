@@ -5,7 +5,9 @@
   "description": "AI-powered YouTube video blocker with scheduled blocking.",
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
