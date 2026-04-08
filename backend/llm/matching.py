@@ -3,12 +3,14 @@ LLM integration for checking if metadata matches blocking rules
 """
 
 import json
-import asyncio
 import logging
+import time
+import uuid
 from typing import Dict, Any, List
 
-from anthropic import Anthropic
-from anthropic.types import TextBlock
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
+from pydantic.v1 import SecretStr
 
 from schemas import CheckMetadataResponse
 from config import require_anthropic_api_key
@@ -17,61 +19,35 @@ from constants import (
     MAX_TOKENS_MATCHING,
     HIGH_SIMILARITY_THRESHOLD,
     LOW_SIMILARITY_THRESHOLD,
+    CONFIDENCE_THRESHOLD,
     ERROR_METADATA_CHECK_FAILED,
 )
 from .utils import extract_json_from_response
 from .embeddings import get_embedding, cosine_similarity
+from .metadata_source import (
+    metadata_author_names,
+    resolve_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _metadata_author_names(metadata: Dict[str, Any]) -> List[str]:
-    """Channel/uploader names from extension (list); support legacy single author_name string."""
-    raw = metadata.get("author_names")
-    if isinstance(raw, list):
-        return [str(x).strip() for x in raw if str(x).strip()]
-    legacy = metadata.get("author_name")
-    if isinstance(legacy, str) and legacy.strip():
-        return [legacy.strip()]
-    return []
-
-
 def _format_authors_for_prompt(metadata: Dict[str, Any]) -> str:
-    names = _metadata_author_names(metadata)
+    names = metadata_author_names(metadata)
     if not names:
         return "N/A"
     return "; ".join(names)
 
 
-def _create_anthropic_client(api_key: str) -> Anthropic:
-    """
-    Create and return an Anthropic client
-    
-    Args:
-        api_key: Anthropic API key
-        
-    Returns:
-        Anthropic client instance
-    """
-    return Anthropic(api_key=api_key)
-
-
-def _extract_text_from_response(message) -> str:
-    """
-    Extract text content from Anthropic API response
-    
-    Args:
-        message: Anthropic API message response
-        
-    Returns:
-        Extracted text content
-    """
-    content = ""
-    if message.content:
-        for block in message.content:
-            if isinstance(block, TextBlock):
-                content += block.text
-    return content
+def _create_chat_model(api_key: str) -> ChatAnthropic:
+    return ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
+        timeout=None,
+        stop=None,
+        base_url=None,
+        api_key=SecretStr(api_key),
+        model_kwargs={"max_tokens": MAX_TOKENS_MATCHING},
+    )
 
 
 def _format_metadata_string(metadata: Dict[str, Any], url: str) -> str:
@@ -106,7 +82,7 @@ def _youtube_ogp_insufficient(metadata: Dict[str, Any]) -> bool:
     In that state the model may guess and return matches: true incorrectly.
     Non-empty author_names (e.g. from oEmbed or JSON-LD) counts as usable signal.
     """
-    has_authors = bool(_metadata_author_names(metadata))
+    has_authors = bool(metadata_author_names(metadata))
     title = (metadata.get("og_title") or "").strip()
     desc = (metadata.get("og_description") or "").strip()
     t_low = title.lower()
@@ -167,7 +143,6 @@ IMPORTANT:
 
 async def check_metadata_matches_rule(
     user_description: str,
-    metadata: Dict[str, Any],
     url: str
 ) -> CheckMetadataResponse:
     """
@@ -175,7 +150,6 @@ async def check_metadata_matches_rule(
     
     Args:
         user_description: User's blocking rule description
-        metadata: Website metadata dictionary
         url: Website URL
         
     Returns:
@@ -184,53 +158,30 @@ async def check_metadata_matches_rule(
     Raises:
         ValueError: If API key is not set or check fails
     """
-    if _youtube_ogp_insufficient(metadata):
-        logger.info("[LLM] Skipping model call — OGP insufficient (generic/stale)")
-        return CheckMetadataResponse(
-            matches=False,
-            confidence=0.9,
-            reasoning=(
-                "Video metadata is not loaded or only shows a generic YouTube placeholder; "
-                "cannot evaluate the rule — not blocking."
-            ),
-        )
-
-    api_key = require_anthropic_api_key()
-    metadata_str = _format_metadata_string(metadata, url)
-    prompt = _build_matching_prompt(user_description, metadata_str)
-
-    def _call_anthropic():
-        client = _create_anthropic_client(api_key)
-        return client.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=MAX_TOKENS_MATCHING,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
     try:
-        logger.info("[LLM] Checking metadata match for URL: %s", url)
-        logger.debug("[LLM] User description: %s", user_description)
-        logger.debug("[LLM] Metadata: %s", json.dumps(metadata, indent=2))
-        message = await asyncio.to_thread(_call_anthropic)
-        content = _extract_text_from_response(message)
-        logger.debug("[LLM] Raw LLM response:\n%s", content)
+        from .graphs.check_metadata_graph import get_check_metadata_graph
 
-        # Parse JSON using utility function
-        parsed = extract_json_from_response(content)
+        effective_metadata = await resolve_metadata(url)
 
-        matches = bool(parsed.get("matches", False))
-        confidence = float(parsed.get("confidence", 0.0))
-        reasoning = str(parsed.get("reasoning", "No reasoning provided"))
-        
-        logger.info(
-            f"[LLM] Result - matches: {matches}, "
-            f"confidence: {confidence:.2f}, reasoning: {reasoning}"
+        graph = get_check_metadata_graph()
+        result = await graph.ainvoke(
+            {
+                "user_description": user_description,
+                "metadata": effective_metadata,
+                "url": url,
+            }
         )
-
         return CheckMetadataResponse(
-            matches=matches,
-            confidence=confidence,
-            reasoning=reasoning
+            matches=bool(result.get("matches", False)),
+            block=bool(result.get("matches", False))
+            and float(result.get("confidence", 0.0)) >= CONFIDENCE_THRESHOLD,
+            confidence=float(result.get("confidence", 0.0)),
+            reasoning=str(result.get("reasoning", "No reasoning provided")),
+            reason_code=str(result.get("reason_code", "llm_evaluation")),
+            decision_id=str(uuid.uuid4()),
+            matched_rule_id=str(result.get("matched_rule_id")) if result.get("matched_rule_id") else None,
+            model_name=ANTHROPIC_MODEL,
+            evaluated_at=int(time.time() * 1000),
         )
 
     except ValueError:
@@ -251,7 +202,7 @@ def _format_metadata_for_embedding(metadata: Dict[str, Any]) -> str:
         Formatted text string
     """
     metadata_text = f"YouTube Video: {metadata.get('og_title', '')}\n"
-    author_names = _metadata_author_names(metadata)
+    author_names = metadata_author_names(metadata)
     if author_names:
         metadata_text += f"Channels: {'; '.join(author_names)}\n"
     if metadata.get('og_description'):
@@ -263,7 +214,6 @@ def _format_metadata_for_embedding(metadata: Dict[str, Any]) -> str:
 
 async def check_metadata_matches_rule_optimized(
     user_description: str,
-    metadata: Dict[str, Any],
     url: str
 ) -> CheckMetadataResponse:
     """
@@ -271,68 +221,110 @@ async def check_metadata_matches_rule_optimized(
     
     Args:
         user_description: User's blocking rule description
-        metadata: Website metadata dictionary
         url: Website URL
         
     Returns:
         CheckMetadataResponse with match result, confidence, and reasoning
     """
-    logger.info(f"[OPTIMIZED] Checking URL: {url}")
-    logger.info(f"[OPTIMIZED] User description: {user_description}")
+    return await check_metadata_matches_rule(
+        user_description=user_description,
+        url=url,
+    )
 
+
+async def matching_node_ogp_guard(state: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = state["metadata"]
     if _youtube_ogp_insufficient(metadata):
-        logger.info("[OPTIMIZED] Skipping embeddings/LLM — OGP insufficient (generic/stale)")
-        return CheckMetadataResponse(
-            matches=False,
-            confidence=0.9,
-            reasoning=(
+        logger.info("[MATCH] Skipping embeddings/LLM — OGP insufficient (generic/stale)")
+        return {
+            "skip_due_to_ogp": True,
+            "matches": False,
+            "confidence": 0.9,
+            "reason_code": "insufficient_metadata",
+            "reasoning": (
                 "Video metadata is not loaded or only shows a generic YouTube placeholder; "
                 "cannot evaluate the rule — not blocking."
             ),
+        }
+    return {"skip_due_to_ogp": False, "metadata_text": _format_metadata_for_embedding(metadata)}
+
+
+async def matching_node_embedding_similarity(state: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("[MATCH] Computing embeddings...")
+    rule_embedding = await get_embedding(state["user_description"])
+    metadata_embedding = await get_embedding(state["metadata_text"])
+    similarity = cosine_similarity(rule_embedding, metadata_embedding)
+    logger.info(f"[MATCH] Embedding similarity: {similarity:.3f}")
+    return {"similarity": similarity}
+
+
+def matching_route_after_ogp_guard(state: Dict[str, Any]) -> str:
+    return "finalize" if state.get("skip_due_to_ogp") else "embedding_similarity"
+
+
+def matching_route_after_similarity(state: Dict[str, Any]) -> str:
+    similarity = float(state.get("similarity", 0.0))
+    if similarity >= HIGH_SIMILARITY_THRESHOLD:
+        return "high_similarity_decision"
+    return "llm_decision"
+
+
+async def matching_node_high_similarity_decision(state: Dict[str, Any]) -> Dict[str, Any]:
+    similarity = float(state.get("similarity", 0.0))
+    return {
+        "matches": True,
+        "confidence": similarity,
+        "reason_code": "high_similarity_match",
+        "reasoning": f"High semantic similarity ({similarity:.1%})",
+    }
+
+
+async def matching_node_llm_decision(state: Dict[str, Any]) -> Dict[str, Any]:
+    similarity = float(state.get("similarity", 0.0))
+    if similarity < LOW_SIMILARITY_THRESHOLD:
+        logger.info(
+            f"[MATCH] Low embedding similarity ({similarity:.1%}) - "
+            f"using LLM (embeddings are not used to auto-reject)"
+        )
+    else:
+        logger.info(
+            f"[MATCH] Medium similarity ({similarity:.1%}) - using LLM for decision"
         )
 
-    metadata_text = _format_metadata_for_embedding(metadata)
-
-    # Fast embedding check
-    try:
-        logger.info("[OPTIMIZED] Computing embeddings...")
-        rule_embedding = await get_embedding(user_description)
-        metadata_embedding = await get_embedding(metadata_text)
-        similarity = cosine_similarity(rule_embedding, metadata_embedding)
-
-        logger.info(f"[OPTIMIZED] Embedding similarity: {similarity:.3f}")
-
-        # High similarity — fast path to block (embedding agrees with rule)
-        if similarity >= HIGH_SIMILARITY_THRESHOLD:
-            logger.info(
-                f"[OPTIMIZED] High similarity ({similarity:.1%}) - "
-                f"blocking without LLM"
-            )
-            return CheckMetadataResponse(
-                matches=True,
-                confidence=float(similarity),
-                reasoning=f"High semantic similarity ({similarity:.1%})"
-            )
-
-        # Below high threshold: never auto-reject on low embedding similarity —
-        # cosine distance often misses lexical overlaps (e.g. rule vs. title phrasing).
-        if similarity < LOW_SIMILARITY_THRESHOLD:
-            logger.info(
-                f"[OPTIMIZED] Low embedding similarity ({similarity:.1%}) - "
-                f"using LLM (embeddings are not used to auto-reject)"
-            )
-        else:
-            logger.info(
-                f"[OPTIMIZED] Medium similarity ({similarity:.1%}) - "
-                f"using LLM for decision"
-            )
-
-        return await check_metadata_matches_rule(
-            user_description, metadata, url
+    api_key = require_anthropic_api_key()
+    metadata_str = _format_metadata_string(state["metadata"], state["url"])
+    prompt = _build_matching_prompt(state["user_description"], metadata_str)
+    model = _create_chat_model(api_key)
+    logger.info("[MATCH] Checking metadata match for URL: %s", state["url"])
+    logger.debug("[MATCH] User description: %s", state["user_description"])
+    logger.debug("[MATCH] Metadata: %s", json.dumps(state["metadata"], indent=2))
+    response = await model.ainvoke([HumanMessage(content=prompt)])
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(
+            str(getattr(block, "text", block)) for block in content
         )
+    parsed = extract_json_from_response(str(content))
+    matches = bool(parsed.get("matches", False))
+    confidence = float(parsed.get("confidence", 0.0))
+    reasoning = str(parsed.get("reasoning", "No reasoning provided"))
+    logger.info(
+        f"[MATCH] Result - matches: {matches}, "
+        f"confidence: {confidence:.2f}, reasoning: {reasoning}"
+    )
+    return {
+        "matches": matches,
+        "confidence": confidence,
+        "reason_code": "llm_evaluation",
+        "reasoning": reasoning,
+    }
 
-    except Exception as e:
-        # Fallback to LLM if embeddings fail
-        logger.warning(f"[OPTIMIZED] Embedding check failed, using LLM: {e}")
-        return await check_metadata_matches_rule(user_description, metadata, url)
+
+async def matching_node_finalize(state: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "matches": bool(state.get("matches", False)),
+        "confidence": float(state.get("confidence", 0.0)),
+        "reason_code": str(state.get("reason_code", "llm_evaluation")),
+        "reasoning": str(state.get("reasoning", "No reasoning provided")),
+    }
 

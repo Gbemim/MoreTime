@@ -1,25 +1,27 @@
 /**
  * Background service worker for the MoreTime extension
- * Handles messaging, storage, schedule evaluation, and rule management
+ * Handles messaging and backend API orchestration for rule management
  * Blocking is performed via metadata analysis in content scripts
  */
 
 import { BlockRule } from '../types';
-import { MESSAGE_TYPES, ALARM_NAMES } from '../constants';
+import { MESSAGE_TYPES } from '../constants';
 import { debug, error as logError } from '../utils/logger';
-import { getRules, saveRules } from './storage';
-import { filterActiveRules } from './utils';
-import { generateRules, checkMetadata } from './api';
+import { checkMetadata, deleteRule, generateRules, getRules, saveRule, toggleRule } from './api';
 import { redirectToBlocked } from './redirect';
-import { fetchYoutubeOEmbedMetadata } from '../youtube-oembed';
 
+type CreateRuleInput = {
+  userDescription: string;
+  aiSummary: string;
+  schedule: BlockRule['schedule'];
+};
 
 /**
  * Get active rules based on schedules
  */
 async function getActiveRules(): Promise<BlockRule[]> {
-  const allRules = await getRules();
-  return filterActiveRules(allRules);
+  const response = await getRules(true);
+  return response.rules as BlockRule[];
 }
 
 /**
@@ -53,7 +55,7 @@ async function applyBlockingRules(activeRules: BlockRule[]): Promise<void> {
 
 /**
  * Evaluate schedules and update blocking rules
- * Called periodically via chrome.alarms
+ * Called on extension lifecycle events
  */
 async function evaluateAndUpdateRules(): Promise<void> {
   const activeRules = await getActiveRules();
@@ -74,7 +76,8 @@ async function handleMessage(
     }
 
     case MESSAGE_TYPES.GET_RULES: {
-      const allRules = await getRules();
+      const response = await getRules(false);
+      const allRules = response.rules as BlockRule[];
       return { success: true, rules: allRules };
     }
 
@@ -84,46 +87,33 @@ async function handleMessage(
     }
 
     case MESSAGE_TYPES.SAVE_RULE: {
-      const currentRules = await getRules();
-      currentRules.push(message.rule as BlockRule);
-      await saveRules(currentRules);
+      const inputRule = message.rule as CreateRuleInput;
+      const createdRule = (await saveRule({
+        userDescription: inputRule.userDescription,
+        aiSummary: inputRule.aiSummary,
+        schedule: inputRule.schedule,
+      })) as BlockRule;
       await evaluateAndUpdateRules(); // Update blocking immediately
-      return { success: true };
+      return { success: true, rule: createdRule };
     }
 
     case MESSAGE_TYPES.TOGGLE_RULE: {
-      const rulesToToggle = await getRules();
-      const ruleIndex = rulesToToggle.findIndex((r) => r.id === message.ruleId);
-      if (ruleIndex !== -1) {
-        rulesToToggle[ruleIndex].enabled = message.enabled as boolean;
-        await saveRules(rulesToToggle);
-        await evaluateAndUpdateRules();
-        return { success: true };
-      }
-      return { success: false, error: 'Rule not found' };
+      const updated = (await toggleRule(message.ruleId as string, message.enabled as boolean)) as BlockRule;
+      await evaluateAndUpdateRules();
+      return { success: true, rule: updated };
     }
 
     case MESSAGE_TYPES.DELETE_RULE: {
-      const rulesToDelete = await getRules();
-      const filteredRules = rulesToDelete.filter((r) => r.id !== message.ruleId);
-      await saveRules(filteredRules);
+      await deleteRule(message.ruleId as string);
       await evaluateAndUpdateRules();
       return { success: true };
     }
 
-    case MESSAGE_TYPES.GET_YOUTUBE_OEMBED_METADATA: {
-      const watchUrl = message.watchUrl as string;
-      const metadata = await fetchYoutubeOEmbedMetadata(watchUrl);
-      return { success: true, metadata };
-    }
-
     case MESSAGE_TYPES.CHECK_METADATA: {
       const checkResult = await checkMetadata(
+        message.rule_id as string,
         message.user_description as string,
-        message.metadata as Record<string, unknown>,
-        message.url as string,
-        (message.videoTitle as string) ?? '',
-        (message.videoDescription as string) ?? ''
+        message.url as string
       );
       return { success: true, result: checkResult };
     }
@@ -171,18 +161,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
 
   return true; // Indicates we will send a response asynchronously
-});
-
-/**
- * Set up periodic alarm to evaluate schedules
- * This runs every minute to check if rules should be activated/deactivated
- */
-chrome.alarms.create(ALARM_NAMES.EVALUATE_RULES, { periodInMinutes: 1 });
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAMES.EVALUATE_RULES) {
-    evaluateAndUpdateRules();
-  }
 });
 
 /**

@@ -1,9 +1,11 @@
 """
 Constants used throughout the backend application
 """
+import os
 
 # API Configuration
-CORS_ALLOW_ORIGINS = ["*"]  # In production, restrict to specific origins
+_cors_origins = os.getenv("CORS_ALLOW_ORIGINS", "")
+CORS_ALLOW_ORIGINS = [x.strip() for x in _cors_origins.split(",") if x.strip()] or ["*"]
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 

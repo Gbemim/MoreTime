@@ -1,6 +1,6 @@
 # MoreTime - AI-Powered Website Blocker
 
-A Chrome extension (Manifest V3) that uses AI to generate website blocking rules based on natural language descriptions. Includes a Python FastAPI backend that integrates with Anthropic's Claude API.
+A Chrome extension (Manifest V3) that uses AI to generate website blocking rules based on natural language descriptions. Includes a Python FastAPI backend that orchestrates LangChain model calls with LangGraph.
 
 ## Project Structure
 
@@ -58,9 +58,16 @@ MoreTime/
    cp .env.example .env
    ```
 
-5. Add your Anthropic API key to `backend/.env`:
+5. Add model provider API keys to `backend/.env`:
    ```
-   ANTHROPIC_API_KEY=your_api_key_here
+   ANTHROPIC_API_KEY=your_anthropic_api_key_here
+   OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+   Optional tracing (not required for runtime):
+   ```
+   LANGSMITH_API_KEY=your_langsmith_api_key_here
+   LANGSMITH_TRACING=true
    ```
 
 6. Start the FastAPI server:
@@ -123,7 +130,8 @@ MoreTime/
 ### Backend (FastAPI)
 
 - **API Endpoint**: `POST /generate-block-rules`
-- **LLM Integration**: Uses Anthropic Claude to generate structured blocking rules
+- **Orchestration**: Uses LangGraph state graphs for generation and metadata matching pipelines
+- **Model/Embedding Abstractions**: Uses LangChain adapters for Anthropic chat models and OpenAI embeddings
 - **Response Format**: JSON with summary and list of domain/URL patterns
 
 ## Implementation Notes

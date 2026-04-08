@@ -3,16 +3,13 @@
  */
 
 // Backend Configuration (local server; env lives only in backend/.env)
-export const BACKEND_URL = 'https://moretime-production.up.railway.app';
+export const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL || 'https://moretime-production.up.railway.app';
+export const BACKEND_TENANT_ID = 'default-tenant';
+export const BACKEND_API_KEY = '';
 
 /** Set true locally to trace in production builds; `vite` dev always traces via import.meta.env.DEV. */
 export const EXTENSION_VERBOSE_LOGS = true;
-
-// Cache Configuration
-export const METADATA_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-// Similarity Thresholds
-export const CONFIDENCE_THRESHOLD = 0.5;
 
 // Message Types
 export const MESSAGE_TYPES = {
@@ -23,14 +20,7 @@ export const MESSAGE_TYPES = {
   TOGGLE_RULE: 'TOGGLE_RULE',
   DELETE_RULE: 'DELETE_RULE',
   CHECK_METADATA: 'CHECK_METADATA',
-  /** oEmbed must be fetched from the service worker (page CSP blocks many content-script fetches). */
-  GET_YOUTUBE_OEMBED_METADATA: 'GET_YOUTUBE_OEMBED_METADATA',
   REDIRECT_TO_BLOCKED: 'REDIRECT_TO_BLOCKED',
-} as const;
-
-// Alarm Names
-export const ALARM_NAMES = {
-  EVALUATE_RULES: 'evaluateRules',
 } as const;
 
 // Storage Keys

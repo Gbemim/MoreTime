@@ -1,15 +1,12 @@
 /**
  * Content script that checks if YouTube video matches blocking rules
  * Only runs on YouTube video pages (youtube.com/watch*)
- * Resolves title/channel via YouTube oEmbed first (instant), then page OGP if needed
+ * Backend owns metadata fetching and matching decisions.
  */
 
-import { extractPageMetadata, YouTubeVideoMetadata } from './metadata-extractor';
 import { BlockRule } from '../types';
 import { buildBlockedUrl } from '../utils/url-builder';
 import {
-  METADATA_CACHE_TTL,
-  CONFIDENCE_THRESHOLD,
   EXTENSION_VERBOSE_LOGS,
   MESSAGE_TYPES,
   YOUTUBE_HOSTNAME,
@@ -30,9 +27,6 @@ function debug(...args: unknown[]): void {
 function logError(...args: unknown[]): void {
   console.error('[MoreTime]', ...args);
 }
-
-// Cache to avoid checking same YouTube video multiple times
-const metadataCache = new Map<string, { metadata: YouTubeVideoMetadata; timestamp: number }>();
 
 /** One debounced check after navigation signals; delay lets OGP tags catch up. */
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,38 +114,6 @@ function isYouTubeVideoPage(): boolean {
 //   );
 // }
 
-async function fetchOembedFromBackground(watchUrl: string): Promise<YouTubeVideoMetadata | null> {
-  if (!isExtensionContextValid()) return null;
-  try {
-    const response = (await chrome.runtime.sendMessage({
-      type: MESSAGE_TYPES.GET_YOUTUBE_OEMBED_METADATA,
-      watchUrl,
-    })) as { success?: boolean; metadata?: YouTubeVideoMetadata };
-    if (!response?.success || !response.metadata) return null;
-    return response.metadata;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve metadata: oEmbed via background (not blocked by page CSP), then DOM OGP fallback.
- */
-async function getMetadata(cacheKey: string, watchUrl: string): Promise<YouTubeVideoMetadata> {
-  const cached = metadataCache.get(cacheKey);
-
-  if (cached && Date.now() - cached.timestamp < METADATA_CACHE_TTL) {
-    debug('Using cached YouTube video metadata');
-    return cached.metadata;
-  }
-
-  const fromOembed = await fetchOembedFromBackground(watchUrl);
-  const metadata = fromOembed ?? extractPageMetadata();
-  metadataCache.set(cacheKey, { metadata, timestamp: Date.now() });
-  debug('YouTube metadata:', fromOembed ? 'oEmbed' : 'DOM OGP', metadata);
-  return metadata;
-}
-
 /**
  * Get schedule type display string
  * 
@@ -204,13 +166,11 @@ async function handleBlocking(rule: BlockRule, reasoning: string): Promise<void>
  * Check if a video matches a rule and handle blocking if needed
  * 
  * @param rule - Rule to check against
- * @param metadata - Video metadata
  * @param url - Video URL
  * @returns True if the video was blocked
  */
 async function checkRuleMatch(
   rule: BlockRule,
-  metadata: YouTubeVideoMetadata,
   url: string
 ): Promise<boolean> {
   if (!isExtensionContextValid()) return false;
@@ -220,8 +180,8 @@ async function checkRuleMatch(
   try {
     const response = await chrome.runtime.sendMessage({
       type: MESSAGE_TYPES.CHECK_METADATA,
+      rule_id: rule.id,
       user_description: rule.userDescription,
-      metadata,
       url,
     });
 
@@ -233,19 +193,19 @@ async function checkRuleMatch(
     const result = response.result;
     debug('Metadata check result:', {
       matches: result.matches,
+      block: result.block,
       confidence: result.confidence,
-      threshold: CONFIDENCE_THRESHOLD,
     });
     
-    // Block if matches=True and confidence meets threshold
-    if (result.matches && result.confidence >= CONFIDENCE_THRESHOLD) {
+    // Backend returns canonical decision. Extension only enforces UX.
+    if (result.block) {
       await handleBlocking(rule, result.reasoning);
       return true;
     }
     
     debug(
       'YouTube video does not match',
-      { matches: result.matches, confidence: result.confidence, threshold: CONFIDENCE_THRESHOLD }
+      { matches: result.matches, block: result.block, confidence: result.confidence }
     );
     return false;
   } catch (error) {
@@ -286,16 +246,11 @@ async function checkPageAgainstRules(): Promise<void> {
 
     const activeRules: BlockRule[] = response.rules;
     const url = window.location.href;
-    const domain = window.location.hostname;
-
     debug(`Found ${activeRules.length} active rule(s)`, url, activeRules.map((r) => r.userDescription));
-
-    const cacheKey = `${domain}-${url}`;
-    const metadata = await getMetadata(cacheKey, url);
 
     // Check against each active rule
     for (const rule of activeRules) {
-      const wasBlocked = await checkRuleMatch(rule, metadata, url);
+      const wasBlocked = await checkRuleMatch(rule, url);
       if (wasBlocked) {
         return; // Stop checking if blocked
       }

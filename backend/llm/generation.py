@@ -2,12 +2,12 @@
 LLM integration for generating blocking rules
 """
 
-import asyncio
 import logging
-from typing import Callable
+from typing import Any, Dict
 
-from anthropic import Anthropic
-from anthropic.types import TextBlock
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
+from pydantic.v1 import SecretStr
 
 from schemas import GenerateRulesResponse
 from config import require_anthropic_api_key
@@ -49,108 +49,71 @@ Return **only** one JSON object (no markdown fences, no other text), exactly:
 }}"""
 
 
-def _create_anthropic_client(api_key: str) -> Anthropic:
-    """
-    Create and return an Anthropic client
-    
-    Args:
-        api_key: Anthropic API key
-        
-    Returns:
-        Anthropic client instance
-    """
-    return Anthropic(api_key=api_key)
+def _create_chat_model(api_key: str) -> ChatAnthropic:
+    """Create and return a LangChain Anthropic chat model."""
+    return ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
+        timeout=None,
+        stop=None,
+        base_url=None,
+        api_key=SecretStr(api_key),
+        model_kwargs={"max_tokens": MAX_TOKENS_GENERATION},
+    )
 
 
-def _call_anthropic_api(api_key: str, prompt: str) -> Callable:
-    """
-    Create a callable function for Anthropic API
-    
-    Args:
-        api_key: Anthropic API key
-        prompt: Prompt to send to the API
-        
-    Returns:
-        Callable function that returns API response
-    """
-    def _call():
-        client = _create_anthropic_client(api_key)
-        return client.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=MAX_TOKENS_GENERATION,
-            messages=[{"role": "user", "content": prompt}]
+async def generation_node_build_prompt(state: Dict[str, Any]) -> Dict[str, Any]:
+    return {"prompt": _build_generation_prompt(state["description"])}
+
+
+async def generation_node_invoke_model(state: Dict[str, Any]) -> Dict[str, Any]:
+    api_key = require_anthropic_api_key()
+    model = _create_chat_model(api_key)
+    response = await model.ainvoke([HumanMessage(content=state["prompt"])])
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(
+            str(getattr(block, "text", block)) for block in content
         )
-    return _call
+    return {"raw_content": str(content)}
+
+
+async def generation_node_parse_output(state: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = extract_json_from_response(state["raw_content"])
+    return {"parsed": parsed}
+
+
+async def generation_node_normalize_summary(state: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = state.get("parsed", {})
+    summary = (parsed.get("summary") or "").strip()
+    examples = parsed.get("examples")
+    if isinstance(examples, list) and examples:
+        bullets = "\n".join(
+            f"- {str(x).strip()}" for x in examples if str(x).strip()
+        )
+        if bullets:
+            summary = f"{summary}\n\n{bullets}".strip() if summary else bullets
+    if not summary:
+        raise ValueError("Summary is required and cannot be empty")
+    return {"summary": summary}
 
 
 async def generate_block_rules(description: str) -> GenerateRulesResponse:
-    """
-    Generate blocking rules using Anthropic Claude API
-    
-    Args:
-        description: User's natural language description of YouTube videos to block
-        
-    Returns:
-        GenerateRulesResponse with summary including explanation and example video types
-        
-    Raises:
-        ValueError: If API key is not set or generation fails
-    """
-    api_key = require_anthropic_api_key()
-    prompt = _build_generation_prompt(description)
+    """Generate blocking rules via LangGraph + LangChain Anthropic."""
+    from .graphs.generate_rules_graph import get_generate_rules_graph
 
+    description_preview = description[:100] + "..." if len(description) > 100 else description
+    logger.info(f"[LLM] Generating rules for description: {description_preview}")
     try:
-        description_preview = description[:100] + "..." if len(description) > 100 else description
-        logger.info(f"[LLM] Generating rules for description: {description_preview}")
-        
-        api_call = _call_anthropic_api(api_key, prompt)
-        message = await asyncio.to_thread(api_call)
-
-        # Extract text content from the response
-        content = _extract_text_from_response(message)
-        
-        logger.info(f"[LLM] Raw response content:\n{content}")
-
-        # Parse JSON using utility function
-        parsed = extract_json_from_response(content)
-
-        # Validate and convert to response model (examples may be omitted by older-shaped responses)
-        summary = (parsed.get("summary") or "").strip()
-        examples = parsed.get("examples")
-        if isinstance(examples, list) and examples:
-            bullets = "\n".join(
-                f"- {str(x).strip()}" for x in examples if str(x).strip()
-            )
-            if bullets:
-                summary = f"{summary}\n\n{bullets}".strip() if summary else bullets
-
+        graph = get_generate_rules_graph()
+        result = await graph.ainvoke({"description": description})
+        summary = str(result.get("summary") or "").strip()
         if not summary:
             raise ValueError("Summary is required and cannot be empty")
-        
         logger.info(f"[LLM] Final summary: {summary}")
         return GenerateRulesResponse(summary=summary)
-
     except ValueError:
         raise
     except Exception as e:
-        logger.error(f"[LLM] Error calling Anthropic API: {e}", exc_info=True)
+        logger.error(f"[LLM] Error generating rules: {e}", exc_info=True)
         raise ValueError(f"{ERROR_GENERATION_FAILED}: {str(e)}") from e
-
-
-def _extract_text_from_response(message) -> str:
-    """
-    Extract text content from Anthropic API response
-    
-    Args:
-        message: Anthropic API message response
-        
-    Returns:
-        Extracted text content
-    """
-    content = ""
-    if message.content:
-        for block in message.content:
-            if isinstance(block, TextBlock):
-                content += block.text
-    return content
 

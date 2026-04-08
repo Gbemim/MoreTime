@@ -54,21 +54,18 @@ export const PopupApp: React.FC = () => {
       return;
     }
 
-    const newRule: BlockRule = {
-      id: Date.now().toString(),
-      userDescription: description,
-      aiSummary: generatedRules.summary,
-      patterns: [], // Empty - blocking uses metadata analysis only
-      schedule,
-      enabled: true,
-      createdAt: Date.now(),
-    };
-
     chrome.runtime.sendMessage(
-      { type: MESSAGE_TYPES.SAVE_RULE, rule: newRule },
+      {
+        type: MESSAGE_TYPES.SAVE_RULE,
+        rule: {
+          userDescription: description,
+          aiSummary: generatedRules.summary,
+          schedule,
+        },
+      },
       (response) => {
-        if (response && response.success) {
-          setSavedRules([...savedRules, newRule]);
+        if (response && response.success && response.rule) {
+          setSavedRules([...savedRules, response.rule as BlockRule]);
           setDescription('');
           setSchedule(null);
           setGeneratedRules(null);

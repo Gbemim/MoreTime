@@ -7,7 +7,8 @@ import logging
 from typing import List
 
 import numpy as np
-from openai import OpenAI
+from langchain_openai import OpenAIEmbeddings
+from pydantic.v1 import SecretStr
 
 from config import require_openai_api_key
 from constants import OPENAI_EMBEDDING_MODEL
@@ -30,14 +31,12 @@ async def get_embedding(text: str) -> List[float]:
     """
     api_key = require_openai_api_key()
     
-    client = OpenAI(api_key=api_key)
+    client = OpenAIEmbeddings(
+        model=OPENAI_EMBEDDING_MODEL,
+        api_key=SecretStr(api_key),
+    )
     try:
-        response = await asyncio.to_thread(
-            client.embeddings.create,
-            model=OPENAI_EMBEDDING_MODEL,
-            input=text
-        )
-        return response.data[0].embedding
+        return await asyncio.to_thread(client.embed_query, text)
     except Exception as e:
         logger.error(f"Failed to get embedding: {e}")
         raise ValueError(f"Failed to get embedding: {str(e)}") from e
