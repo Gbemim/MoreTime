@@ -8,3 +8,7 @@ langgraph==0.4.0
 langchain-anthropic==0.1.23
 langchain-openai==0.1.25
 langchain-text-splitters==0.2.4
+anthropic==0.75.0
+langchain-core==0.2.43
+langsmith==0.1.147
+openai==1.109.1
