@@ -7,8 +7,8 @@ from langgraph.graph import START, END, StateGraph
 from .runtime import compile_graph
 from .state import CheckMetadataState
 from ..matching import (
-    matching_node_ogp_guard,
-    matching_route_after_ogp_guard,
+    matching_node_metadata_quality_guard,
+    matching_route_after_metadata_quality_guard,
     matching_node_embedding_similarity,
     matching_route_after_similarity,
     matching_node_high_similarity_decision,
@@ -23,16 +23,16 @@ def get_check_metadata_graph():
     global _CHECK_METADATA_GRAPH
     if _CHECK_METADATA_GRAPH is None:
         builder = StateGraph(CheckMetadataState)
-        builder.add_node("ogp_guard", matching_node_ogp_guard)
+        builder.add_node("metadata_quality_guard", matching_node_metadata_quality_guard)
         builder.add_node("embedding_similarity", matching_node_embedding_similarity)
         builder.add_node("high_similarity_decision", matching_node_high_similarity_decision)
         builder.add_node("llm_decision", matching_node_llm_decision)
         builder.add_node("finalize", matching_node_finalize)
 
-        builder.add_edge(START, "ogp_guard")
+        builder.add_edge(START, "metadata_quality_guard")
         builder.add_conditional_edges(
-            "ogp_guard",
-            matching_route_after_ogp_guard,
+            "metadata_quality_guard",
+            matching_route_after_metadata_quality_guard,
             {
                 "embedding_similarity": "embedding_similarity",
                 "finalize": "finalize",

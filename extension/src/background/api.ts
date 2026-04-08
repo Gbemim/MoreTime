@@ -3,7 +3,7 @@
  */
 
 import { GenerateRulesResponse } from '../types';
-import { BACKEND_API_KEY, BACKEND_TENANT_ID, BACKEND_URL } from '../constants';
+import { BACKEND_API_KEY, BACKEND_FALLBACK_URL, BACKEND_TENANT_ID, BACKEND_URL } from '../constants';
 import { debug, error as logError } from '../utils/logger';
 
 export interface CheckMetadataResult {
@@ -31,6 +31,18 @@ function buildHeaders(): Record<string, string> {
   return headers;
 }
 
+async function fetchBackend(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${BACKEND_URL}${path}`, init);
+  } catch (error) {
+    if (!BACKEND_FALLBACK_URL) {
+      throw error;
+    }
+    debug(`Primary backend failed, falling back: ${BACKEND_URL} -> ${BACKEND_FALLBACK_URL}`);
+    return fetch(`${BACKEND_FALLBACK_URL}${path}`, init);
+  }
+}
+
 /**
  * Call the backend API to generate block rules
  * 
@@ -40,7 +52,7 @@ function buildHeaders(): Record<string, string> {
  */
 export async function generateRules(description: string): Promise<GenerateRulesResponse> {
   try {
-    const response = await fetch(`${BACKEND_URL}/generate-block-rules`, {
+    const response = await fetchBackend('/generate-block-rules', {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({ description }),
@@ -77,7 +89,7 @@ export async function checkMetadata(
   debug('check-metadata', url);
 
   try {
-    const response = await fetch(`${BACKEND_URL}/check-metadata`, {
+    const response = await fetchBackend('/check-metadata', {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -128,7 +140,7 @@ export async function checkMetadata(
 
 
 export async function getRules(activeOnly = false): Promise<{ rules: unknown[] }> {
-  const response = await fetch(`${BACKEND_URL}/rules?active_only=${activeOnly ? 'true' : 'false'}`, {
+  const response = await fetchBackend(`/rules?active_only=${activeOnly ? 'true' : 'false'}`, {
     method: 'GET',
     headers: buildHeaders(),
   });
@@ -144,7 +156,7 @@ export async function saveRule(rule: {
   aiSummary: string;
   schedule: unknown;
 }): Promise<unknown> {
-  const response = await fetch(`${BACKEND_URL}/rules`, {
+  const response = await fetchBackend('/rules', {
     method: 'POST',
     headers: buildHeaders(),
     body: JSON.stringify(rule),
@@ -157,7 +169,7 @@ export async function saveRule(rule: {
 }
 
 export async function toggleRule(ruleId: string, enabled: boolean): Promise<unknown> {
-  const response = await fetch(`${BACKEND_URL}/rules/${ruleId}`, {
+  const response = await fetchBackend(`/rules/${ruleId}`, {
     method: 'PATCH',
     headers: buildHeaders(),
     body: JSON.stringify({ enabled }),
@@ -170,7 +182,7 @@ export async function toggleRule(ruleId: string, enabled: boolean): Promise<unkn
 }
 
 export async function deleteRule(ruleId: string): Promise<void> {
-  const response = await fetch(`${BACKEND_URL}/rules/${ruleId}`, {
+  const response = await fetchBackend(`/rules/${ruleId}`, {
     method: 'DELETE',
     headers: buildHeaders(),
   });

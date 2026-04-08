@@ -1,15 +1,15 @@
 /**
- * Extract Open Graph Protocol metadata from YouTube video pages
- * Focuses specifically on YouTube videos using OGP metadata
+ * Extract normalized metadata from YouTube video pages
+ * Uses page metadata tags as fallback-friendly signals
  * Runs in page context, so it can access the DOM directly
  */
 
 export interface YouTubeVideoMetadata {
-  // Basic OGP properties (required)
-  og_title: string;
-  og_type: string | null;
-  og_description: string | null;
-  og_site_name: string | null;
+  // Core normalized fields
+  title: string;
+  content_type: string | null;
+  description: string | null;
+  site_name: string | null;
 
   /** Channel / uploader display names (YouTube supports multiple per video). */
   author_names: string[];
@@ -20,9 +20,9 @@ export interface YouTubeVideoMetadata {
 }
 
 /**
- * Extract Open Graph Protocol metadata from meta tags
+ * Extract metadata content from meta tags
  */
-function getOgContent(property: string): string | null {
+function getMetaPropertyContent(property: string): string | null {
   const meta = document.querySelector(`meta[property="${property}"]`);
   return meta ? (meta.getAttribute('content') || null) : null;
 }
@@ -113,27 +113,26 @@ function extractAuthorNamesFromDom(): string[] {
 }
 
 /**
- * Extract YouTube video metadata using Open Graph Protocol
- * Based on https://ogp.me/ specification
+ * Extract normalized YouTube video metadata
  */
 export function extractPageMetadata(): YouTubeVideoMetadata {
-  // Extract all OGP properties
-  const ogTitle = getOgContent('og:title') || document.title || '';
-  const ogType = getOgContent('og:type');
-  const ogDescription = getOgContent('og:description');
-  const ogSiteName = getOgContent('og:site_name');
+  // Extract page metadata properties
+  const title = getMetaPropertyContent('og:title') || document.title || '';
+  const contentType = getMetaPropertyContent('og:type');
+  const description = getMetaPropertyContent('og:description');
+  const siteName = getMetaPropertyContent('og:site_name');
   const currentUrl = window.location.href;
   const videoId = extractVideoId(currentUrl);
   const author_names = extractAuthorNamesFromDom();
 
   return {
-    // Required OGP properties
-    og_title: ogTitle,
-    og_type: ogType,
+    // Required normalized fields
+    title,
+    content_type: contentType,
 
-    // Optional OGP properties
-    og_description: ogDescription,
-    og_site_name: ogSiteName,
+    // Optional normalized fields
+    description,
+    site_name: siteName,
 
     author_names,
 

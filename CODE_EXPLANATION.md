@@ -219,7 +219,7 @@ This document explains how every file works and what each line of code does.
   - Line 34-49: Multi-line f-string that creates the prompt
     - Explains the task to Claude
     - Includes user's description
-    - Explains OGP metadata system
+    - Explains metadata matching expectations
     - Asks for summary with examples
     - Specifies JSON response format
 52-62: Function _create_anthropic_client()
@@ -621,7 +621,7 @@ This document explains how every file works and what each line of code does.
 
 ### `extension/src/content/metadata-extractor.ts` - Metadata Extraction
 
-**Purpose**: Extracts Open Graph Protocol metadata from YouTube pages.
+**Purpose**: Extracts normalized metadata from YouTube pages.
 
 **Line-by-line explanation**:
 
@@ -629,11 +629,11 @@ This document explains how every file works and what each line of code does.
 1-5: JSDoc comment
 7-17: YouTubeVideoMetadata interface
   - Defines structure of extracted metadata
-  - og_title, og_type, og_description, og_site_name (OGP properties)
+  - title, content_type, description, site_name (normalized fields)
   - url, video_id (additional metadata)
-19-25: Function getOgContent()
+19-25: Function getMetaPropertyContent()
   - Line 19: JSDoc
-  - Line 22: Function to get OGP meta tag content
+  - Line 22: Function to get a metadata property content value
   - Line 23: Query selector for meta[property="..."]
   - Line 24: Return content attribute or null
 27-33: Function extractVideoId()
@@ -644,8 +644,8 @@ This document explains how every file works and what each line of code does.
 35-61: Function extractPageMetadata()
   - Line 35: JSDoc
   - Line 39: Main function to extract all metadata
-  - Line 41: Get og:title or fallback to document.title or ''
-  - Line 42-44: Get other OGP properties
+  - Line 41: Get title from metadata property fallback to document.title
+  - Line 42-44: Get other metadata properties
   - Line 45: Get current URL
   - Line 46: Extract video ID
   - Line 48-60: Return metadata object

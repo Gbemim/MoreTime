@@ -28,7 +28,7 @@ function logError(...args: unknown[]): void {
   console.error('[MoreTime]', ...args);
 }
 
-/** One debounced check after navigation signals; delay lets OGP tags catch up. */
+/** One debounced check after navigation signals; delay lets page metadata tags catch up. */
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Last watch ?v= we scheduled for — yt-navigate-finish fires often for the same video; ignore duplicates. */

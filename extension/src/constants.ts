@@ -2,9 +2,13 @@
  * Constants used throughout the extension
  */
 
-// Backend Configuration (local server; env lives only in backend/.env)
-export const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL || 'https://moretime-production.up.railway.app';
+// Backend configuration:
+// - If VITE_BACKEND_URL is provided, use it directly.
+// - Otherwise prefer local backend and allow API client fallback to Railway when local is unreachable.
+export const LOCAL_BACKEND_URL = 'http://localhost:8000';
+export const RAILWAY_BACKEND_URL = 'https://moretime-production.up.railway.app';
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || LOCAL_BACKEND_URL;
+export const BACKEND_FALLBACK_URL = import.meta.env.VITE_BACKEND_URL ? '' : RAILWAY_BACKEND_URL;
 export const BACKEND_TENANT_ID = 'default-tenant';
 export const BACKEND_API_KEY = '';
 

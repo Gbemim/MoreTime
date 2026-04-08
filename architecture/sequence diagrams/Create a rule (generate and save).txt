@@ -8,12 +8,6 @@ sequenceDiagram
   CS->>BG: GET_ACTIVE_RULES
   BG-->>CS: rules in current schedule window
 
-  CS->>BG: GET_YOUTUBE_OEMBED_METADATA (optional)
-  BG-->>CS: oEmbed metadata
-  alt no oEmbed
-    CS->>CS: DOM OGP fallback
-  end
-
   loop each active rule
     CS->>BG: CHECK_METADATA (+ metadata, url, description)
     BG->>API: POST /check-metadata

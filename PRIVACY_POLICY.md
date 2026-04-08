@@ -38,7 +38,7 @@ We monitor user activity on YouTube pages, including:
 
 We extract and analyze website content from YouTube pages, including:
 - Text content (video titles, descriptions)
-- Open Graph Protocol (OGP) metadata (og:title, og:description, og:type, og:site_name)
+- Normalized video metadata fields (title, description, content_type, site_name), resolved oEmbed-first with page-metadata fallback
 - Video IDs and URLs
 - Hyperlinks and page structure
 

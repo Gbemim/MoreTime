@@ -177,17 +177,10 @@ User Input → PopupApp → chrome.runtime.sendMessage → Background Worker
                └─> Checks schedule (isDurationActive or isDailyActive)
            └─> Returns active rules array
 
-4. CONTENT SCRIPT METADATA EXTRACTION (metadata-checker.ts)
+4. CONTENT SCRIPT REQUEST PREP (metadata-checker.ts)
    └─> Receives active rules
-       └─> Gets metadata (getMetadata function)
-           └─> Checks cache first (metadataCache Map)
-           └─> If not cached or expired:
-               └─> Calls extractPageMetadata() (metadata-extractor.ts)
-                   └─> Queries DOM for OGP meta tags
-                   └─> Extracts: og:title, og:description, og:type, etc.
-                   └─> Extracts video ID from URL
-                   └─> Returns YouTubeVideoMetadata object
-           └─> Caches metadata (5 minute TTL)
+       └─> Reads current watch URL
+       └─> Forwards url + rule context to background
 
 5. RULE MATCHING (metadata-checker.ts)
    └─> For each active rule:
@@ -196,7 +189,6 @@ User Input → PopupApp → chrome.runtime.sendMessage → Background Worker
                Message: {
                  type: 'CHECK_METADATA',
                  user_description: rule.userDescription,
-                 metadata: {...},
                  url: currentUrl
                }
 
@@ -220,7 +212,8 @@ User Input → PopupApp → chrome.runtime.sendMessage → Background Worker
 
 9. OPTIMIZED MATCHING (llm/matching.py)
    └─> check_metadata_matches_rule_optimized()
-       └─> Formats metadata for embedding
+      └─> Resolves metadata (oEmbed first, page-metadata fallback)
+      └─> Formats metadata for embedding
        └─> Gets embeddings (embeddings.py)
            └─> get_embedding(user_description) → OpenAI API
            └─> get_embedding(metadata_text) → OpenAI API
@@ -506,10 +499,10 @@ const [isGenerating, setIsGenerating] = useState(false);
 - Why: Embeddings are fast but less accurate, LLM is slow but accurate
 - Implementation: Use embeddings first, LLM only when needed
 
-### 3. **Caching Pattern**
-- Used for: Metadata extraction
-- Why: Avoid redundant DOM queries
-- Implementation: Map with TTL
+### 3. **Metadata Source Resolution Pattern**
+- Used for: YouTube metadata retrieval
+- Why: Prefer reliable oEmbed metadata and fallback when unavailable
+- Implementation: oEmbed-first resolution with backend page-metadata fallback
 
 ### 4. **Schedule Evaluation Pattern**
 - Used for: Rule activation/deactivation

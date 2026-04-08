@@ -70,10 +70,10 @@ async def fetch_youtube_oembed_metadata(url: str) -> Dict[str, Any] | None:
         authors = dedupe_author_names([channel] if channel else [])
         description = f"Channels: {'; '.join(authors)}" if authors else None
         return {
-            "og_title": title,
-            "og_type": data.get("type") or "video",
-            "og_description": description,
-            "og_site_name": data.get("provider_name") or "YouTube",
+            "title": title,
+            "content_type": data.get("type") or "video",
+            "description": description,
+            "site_name": data.get("provider_name") or "YouTube",
             "author_names": authors,
             "url": url,
             "video_id": video_id,
@@ -107,9 +107,9 @@ def _extract_meta_author(html: str) -> List[str]:
     return [author] if author else []
 
 
-async def fetch_youtube_ogp_metadata(url: str) -> Dict[str, Any] | None:
+async def fetch_youtube_page_metadata_fallback(url: str) -> Dict[str, Any] | None:
     """
-    Backend OGP fallback: fetch page HTML and extract OGP fields.
+    Secondary fallback: fetch page HTML and extract OGP fields.
     Returns None if fetch fails or no useful title is found.
     """
     video_id = extract_video_id(url)
@@ -125,20 +125,20 @@ async def fetch_youtube_ogp_metadata(url: str) -> Dict[str, Any] | None:
         except Exception:
             return None
 
-        og_title = _extract_og_content(html, "og:title")
-        og_description = _extract_og_content(html, "og:description")
-        og_type = _extract_og_content(html, "og:type")
-        og_site_name = _extract_og_content(html, "og:site_name")
+        title = _extract_og_content(html, "og:title")
+        description = _extract_og_content(html, "og:description")
+        content_type = _extract_og_content(html, "og:type")
+        site_name = _extract_og_content(html, "og:site_name")
         author_names = dedupe_author_names(_extract_meta_author(html))
 
-        if not og_title and not og_description and not author_names:
+        if not title and not description and not author_names:
             return None
 
         return {
-            "og_title": og_title,
-            "og_type": og_type,
-            "og_description": og_description,
-            "og_site_name": og_site_name or "YouTube",
+            "title": title,
+            "content_type": content_type,
+            "description": description,
+            "site_name": site_name or "YouTube",
             "author_names": author_names,
             "url": url,
             "video_id": video_id,
@@ -155,14 +155,14 @@ async def resolve_metadata(url: str) -> Dict[str, Any]:
     """
     metadata = await fetch_youtube_oembed_metadata(url)
     if metadata is None:
-        metadata = await fetch_youtube_ogp_metadata(url)
+        metadata = await fetch_youtube_page_metadata_fallback(url)
     if metadata is None:
         video_id = extract_video_id(url)
         return {
-            "og_title": None,
-            "og_type": None,
-            "og_description": None,
-            "og_site_name": "YouTube",
+            "title": None,
+            "content_type": None,
+            "description": None,
+            "site_name": "YouTube",
             "author_names": [],
             "url": url,
             "video_id": video_id,

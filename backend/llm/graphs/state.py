@@ -20,7 +20,7 @@ class CheckMetadataState(TypedDict, total=False):
     author: Dict[str, Any]
     metadata_text: str
     similarity: float
-    skip_due_to_ogp: bool
+    skip_due_to_insufficient_metadata: bool
     matches: bool
     confidence: float
     reasoning: str

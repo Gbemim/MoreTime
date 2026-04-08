@@ -3,12 +3,6 @@ sequenceDiagram
   Content script->>Background: GET_ACTIVE_RULES
   Background-->>Content script: rules in current schedule window
 
-  Content script->>Background: GET_YOUTUBE_OEMBED_METADATA (optional)
-  Background-->>Content script: oEmbed metadata
-  alt no oEmbed
-    Content script->>Content script: DOM OGP fallback
-  end
-
   loop each active rule
     Content script->>Background: CHECK_METADATA (+ metadata, url, description)
     Background->>Backend API: POST /check-metadata

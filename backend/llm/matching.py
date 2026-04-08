@@ -69,23 +69,23 @@ Video ID: {metadata.get('video_id', 'N/A')}
 Channels (uploaders / collaborations):
 - author_names: {_format_authors_for_prompt(metadata)}
 
-Open Graph Protocol Metadata (from https://ogp.me/):
-- og:title: {metadata.get('og_title', 'N/A')}
-- og:type: {metadata.get('og_type', 'N/A')}
-- og:description: {metadata.get('og_description', 'N/A')}
-- og:site_name: {metadata.get('og_site_name', 'N/A')}
+Video Metadata (normalized fields; oEmbed-first, OGP fallback):
+- title: {metadata.get('title', 'N/A')}
+- content_type: {metadata.get('content_type', 'N/A')}
+- description: {metadata.get('description', 'N/A')}
+- site_name: {metadata.get('site_name', 'N/A')}
 """
 
 
-def _youtube_ogp_insufficient(metadata: Dict[str, Any]) -> bool:
+def _youtube_metadata_insufficient(metadata: Dict[str, Any]) -> bool:
     """
-    True when OGP is missing or still the generic YouTube shell (SPA not hydrated).
+    True when metadata is missing or still the generic YouTube shell (SPA not hydrated).
     In that state the model may guess and return matches: true incorrectly.
     Non-empty author_names (e.g. from oEmbed or JSON-LD) counts as usable signal.
     """
     has_authors = bool(metadata_author_names(metadata))
-    title = (metadata.get("og_title") or "").strip()
-    desc = (metadata.get("og_description") or "").strip()
+    title = (metadata.get("title") or "").strip()
+    desc = (metadata.get("description") or "").strip()
     t_low = title.lower()
     generic_titles = frozenset(
         {"youtube", "youtube - broadcast yourself", "youtube.com"}
@@ -115,7 +115,7 @@ def _build_matching_prompt(user_description: str, metadata_str: str) -> str:
 User's blocking rule description (what kind of videos they want to block):
 "{user_description}"
 
-YouTube Video Open Graph Protocol Metadata:
+YouTube Video Metadata (oEmbed-first, OGP fallback):
 {metadata_str}
 
 Determine if this YouTube video matches the user's blocking rule. Consider:
@@ -137,8 +137,8 @@ IMPORTANT:
 - If matches: true, your confidence should be at least 0.5 (you should be confident when blocking)
 - If matches: false, confidence can be lower (it's okay to be uncertain about non-matches)
 - Confidence represents how sure you are that your matches decision is correct
-- Use the Open Graph Protocol metadata (og:title, og:description) as the primary source of information
-- If og:title is only the generic word \"YouTube\" (or empty) and og:description is missing or generic, you MUST return matches: false — do not infer video topic from the platform name
+- Metadata fields may be populated from YouTube oEmbed first, with OGP as fallback; treat provided title/description fields as the primary evidence
+- If title is only the generic word \"YouTube\" (or empty) and description is missing or generic, you MUST return matches: false — do not infer video topic from the platform name
 - Do not treat marketing boilerplate in the description (e.g. \"Enjoy the videos and music you love\") as evidence the video matches the rule"""
 
 
@@ -162,6 +162,7 @@ async def check_metadata_matches_rule(
     try:
         from .graphs.check_metadata_graph import get_check_metadata_graph
 
+        # Metadata is resolved oEmbed-first with OGP fallback into normalized fields.
         effective_metadata = await resolve_metadata(url)
 
         graph = get_check_metadata_graph()
@@ -202,14 +203,14 @@ def _format_metadata_for_embedding(metadata: Dict[str, Any]) -> str:
     Returns:
         Formatted text string
     """
-    metadata_text = f"YouTube Video: {metadata.get('og_title', '')}\n"
+    metadata_text = f"YouTube Video: {metadata.get('title', '')}\n"
     author_names = metadata_author_names(metadata)
     if author_names:
         metadata_text += f"Channels: {'; '.join(author_names)}\n"
-    if metadata.get('og_description'):
-        metadata_text += f"Description: {metadata.get('og_description', '')}\n"
-    if metadata.get('og_site_name'):
-        metadata_text += f"Site: {metadata.get('og_site_name', '')}"
+    if metadata.get('description'):
+        metadata_text += f"Description: {metadata.get('description', '')}\n"
+    if metadata.get('site_name'):
+        metadata_text += f"Site: {metadata.get('site_name', '')}"
     return metadata_text
 
 
@@ -233,12 +234,12 @@ async def check_metadata_matches_rule_optimized(
     )
 
 
-async def matching_node_ogp_guard(state: Dict[str, Any]) -> Dict[str, Any]:
+async def matching_node_metadata_quality_guard(state: Dict[str, Any]) -> Dict[str, Any]:
     metadata = state["metadata"]
-    if _youtube_ogp_insufficient(metadata):
-        logger.info("[MATCH] Skipping embeddings/LLM — OGP insufficient (generic/stale)")
+    if _youtube_metadata_insufficient(metadata):
+        logger.info("[MATCH] Skipping embeddings/LLM — metadata insufficient (generic/stale)")
         return {
-            "skip_due_to_ogp": True,
+            "skip_due_to_insufficient_metadata": True,
             "matches": False,
             "confidence": 0.9,
             "reason_code": "insufficient_metadata",
@@ -247,7 +248,10 @@ async def matching_node_ogp_guard(state: Dict[str, Any]) -> Dict[str, Any]:
                 "cannot evaluate the rule — not blocking."
             ),
         }
-    return {"skip_due_to_ogp": False, "metadata_text": _format_metadata_for_embedding(metadata)}
+    return {
+        "skip_due_to_insufficient_metadata": False,
+        "metadata_text": _format_metadata_for_embedding(metadata),
+    }
 
 
 async def matching_node_embedding_similarity(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -259,8 +263,12 @@ async def matching_node_embedding_similarity(state: Dict[str, Any]) -> Dict[str,
     return {"similarity": similarity}
 
 
-def matching_route_after_ogp_guard(state: Dict[str, Any]) -> str:
-    return "finalize" if state.get("skip_due_to_ogp") else "embedding_similarity"
+def matching_route_after_metadata_quality_guard(state: Dict[str, Any]) -> str:
+    return (
+        "finalize"
+        if state.get("skip_due_to_insufficient_metadata")
+        else "embedding_similarity"
+    )
 
 
 def matching_route_after_similarity(state: Dict[str, Any]) -> str:
