@@ -40,14 +40,15 @@ def _format_authors_for_prompt(metadata: Dict[str, Any]) -> str:
 
 
 def _create_chat_model(api_key: str) -> ChatAnthropic:
-    return ChatAnthropic(
-        model_name=ANTHROPIC_MODEL,
-        timeout=None,
-        stop=None,
-        base_url=None,
-        api_key=SecretStr(api_key),
-        model_kwargs={"max_tokens": MAX_TOKENS_MATCHING},
-    )
+    params: Dict[str, Any] = {
+        "model_name": ANTHROPIC_MODEL,
+        "timeout": None,
+        "stop": None,
+        "base_url": None,
+        "api_key": SecretStr(api_key),
+        "max_tokens": MAX_TOKENS_MATCHING,
+    }
+    return ChatAnthropic(**params)
 
 
 def _format_metadata_string(metadata: Dict[str, Any], url: str) -> str:

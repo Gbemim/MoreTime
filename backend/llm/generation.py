@@ -51,13 +51,16 @@ Return **only** one JSON object (no markdown fences, no other text), exactly:
 
 def _create_chat_model(api_key: str) -> ChatAnthropic:
     """Create and return a LangChain Anthropic chat model."""
+    params: Dict[str, Any] = {
+        "model_name": ANTHROPIC_MODEL,
+        "timeout": None,
+        "stop": None,
+        "base_url": None,
+        "api_key": SecretStr(api_key),
+        "max_tokens": MAX_TOKENS_GENERATION,
+    }
     return ChatAnthropic(
-        model_name=ANTHROPIC_MODEL,
-        timeout=None,
-        stop=None,
-        base_url=None,
-        api_key=SecretStr(api_key),
-        model_kwargs={"max_tokens": MAX_TOKENS_GENERATION},
+        **params,
     )
 
 
