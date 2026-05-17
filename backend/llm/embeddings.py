@@ -8,7 +8,7 @@ from typing import List
 
 import numpy as np
 from langchain_openai import OpenAIEmbeddings
-from pydantic.v1 import SecretStr
+from pydantic import SecretStr
 
 from config import require_openai_api_key
 from constants import OPENAI_EMBEDDING_MODEL
@@ -33,7 +33,7 @@ async def get_embedding(text: str) -> List[float]:
     
     client = OpenAIEmbeddings(
         model=OPENAI_EMBEDDING_MODEL,
-        api_key=SecretStr(api_key),
+        api_key=SecretStr(api_key),  # type: ignore[arg-type]
     )
     try:
         return await asyncio.to_thread(client.embed_query, text)

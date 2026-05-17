@@ -27,7 +27,7 @@ from schemas import (
     RulesListResponse,
     ToggleRuleRequest,
 )
-from llm import generate_block_rules, check_metadata_matches_rule_optimized
+from llm import generate_block_rules, check_metadata_matches_rule
 from constants import (
     CORS_ALLOW_ORIGINS,
     DEFAULT_HOST,
@@ -208,7 +208,7 @@ async def check_metadata_endpoint(
         if not user_description:
             raise HTTPException(status_code=400, detail="Missing user description")
 
-        result = await check_metadata_matches_rule_optimized(
+        result = await check_metadata_matches_rule(
             user_description=user_description,
             url=request.url,
             metadata_override=request.metadata,

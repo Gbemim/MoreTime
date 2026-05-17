@@ -1,0 +1,229 @@
+{
+  "version": 1,
+  "updated": "2026-04-19",
+  "check_metadata": [
+    {
+      "id": "gt_cm_gaming_positive",
+      "user_description": "Block gaming walkthroughs, Let's Plays, and long playthrough videos.",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "metadata": {
+        "video_id": "dQw4w9WgXcQ",
+        "title": "Minecraft Hardcore — Day 47: Nether Fortress Grind",
+        "content_type": "video",
+        "description": "Full survival series episode. Gameplay, commentary, and base tour.",
+        "site_name": "YouTube",
+        "author_names": ["PixelSurvivor"],
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      },
+      "expected_matches": true,
+      "expected_block": true,
+      "notes": "Clear gaming long-form; should align with rule intent."
+    },
+    {
+      "id": "gt_cm_gaming_negative",
+      "user_description": "Block gaming walkthroughs, Let's Plays, and long playthrough videos.",
+      "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+      "metadata": {
+        "video_id": "jNQXAC9IVRw",
+        "title": "No-Knead Sourdough Bread — Full Beginner Recipe",
+        "content_type": "video",
+        "description": "Step-by-step baking tutorial in a home kitchen.",
+        "site_name": "YouTube",
+        "author_names": ["BakeWithJamie"],
+        "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+      },
+      "expected_matches": false,
+      "expected_block": false,
+      "notes": "Cooking content; should not match a gaming-only rule."
+    },
+    {
+      "id": "gt_cm_insufficient_metadata",
+      "user_description": "Block news and political commentary.",
+      "url": "https://www.youtube.com/watch?v=9bZkp7q19f0",
+      "metadata": {
+        "video_id": "9bZkp7q19f0",
+        "title": "YouTube",
+        "content_type": "video",
+        "description": "Enjoy the videos you love.",
+        "site_name": "YouTube",
+        "author_names": [],
+        "url": "https://www.youtube.com/watch?v=9bZkp7q19f0"
+      },
+      "expected_matches": false,
+      "expected_block": false,
+      "expected_reason_code": "insufficient_metadata",
+      "notes": "Generic shell metadata; pipeline should not infer topic (see matching.py metadata guard)."
+    },
+    {
+      "id": "gt_cm_music_positive",
+      "user_description": "Block official music videos, singles, and album promo from major artists.",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "metadata": {
+        "video_id": "dQw4w9WgXcQ",
+        "title": "Rick Astley — Never Gonna Give You Up (Official HD Video)",
+        "content_type": "video",
+        "description": "Official music video. From the album Whenever You Need Somebody.",
+        "site_name": "YouTube",
+        "author_names": ["Rick Astley"],
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      },
+      "expected_matches": true,
+      "expected_block": true,
+      "notes": "Classic official music video pattern."
+    },
+    {
+      "id": "gt_cm_music_negative_education",
+      "user_description": "Block official music videos, singles, and album promo from major artists.",
+      "url": "https://www.youtube.com/watch?v=abc123def45",
+      "metadata": {
+        "video_id": "abc123def45",
+        "title": "How to Read Sheet Music (Beginner Piano Lesson 1)",
+        "content_type": "video",
+        "description": "Learn note names, rhythm basics, and hand position. No performances of commercial singles.",
+        "site_name": "YouTube",
+        "author_names": ["Keys Academy"],
+        "url": "https://www.youtube.com/watch?v=abc123def45"
+      },
+      "expected_matches": false,
+      "expected_block": false,
+      "notes": "Music-adjacent education; not an official promo video for a single."
+    },
+    {
+      "id": "gt_cm_asmr_positive",
+      "user_description": "Block ASMR, sleep sounds, and whisper-style relaxation videos.",
+      "url": "https://www.youtube.com/watch?v=asmr0000001",
+      "metadata": {
+        "video_id": "asmr0000001",
+        "title": "ASMR — Gentle Tapping & Whispering for Sleep (No Talking)",
+        "content_type": "video",
+        "description": "Slow tapping, brushing, and soft whispers to help you relax.",
+        "site_name": "YouTube",
+        "author_names": ["CalmWhisper ASMR"],
+        "url": "https://www.youtube.com/watch?v=asmr0000001"
+      },
+      "expected_matches": true,
+      "expected_block": true,
+      "notes": "Direct ASMR match."
+    },
+    {
+      "id": "gt_cm_news_vs_gaming",
+      "user_description": "Block gaming streams, gameplay, and esports matches.",
+      "url": "https://www.youtube.com/watch?v=news0000001",
+      "metadata": {
+        "video_id": "news0000001",
+        "title": "Daily Tech News — Congress Holds Hearing on Video Game Monetization",
+        "content_type": "video",
+        "description": "Panel discussion on regulation; interviews with lawmakers and industry critics.",
+        "site_name": "YouTube",
+        "author_names": ["TechPolicy Daily"],
+        "url": "https://www.youtube.com/watch?v=news0000001"
+      },
+      "expected_matches": false,
+      "expected_block": false,
+      "notes": "News about games is not gameplay/esports; label reflects typical user intent (adjust if product differs)."
+    },
+    {
+      "id": "gt_cm_fitness_positive",
+      "user_description": "Block workout routines, HIIT sessions, and gym training videos.",
+      "url": "https://www.youtube.com/watch?v=fit00000001",
+      "metadata": {
+        "video_id": "fit00000001",
+        "title": "30-Minute Full Body HIIT — No Equipment",
+        "content_type": "video",
+        "description": "Follow-along high intensity intervals with warm-up and cool-down.",
+        "site_name": "YouTube",
+        "author_names": ["Coach Rivera"],
+        "url": "https://www.youtube.com/watch?v=fit00000001"
+      },
+      "expected_matches": true,
+      "expected_block": true,
+      "notes": "Clear workout content."
+    },
+    {
+      "id": "gt_cm_social_media_negative",
+      "user_description": "Block Instagram Reels and TikTok-style short viral clips reposted to YouTube.",
+      "metadata": {
+        "video_id": "docu0000001",
+        "title": "The History of the Printing Press (Documentary)",
+        "content_type": "video",
+        "description": "Archival footage and expert interviews. Runtime 52 minutes.",
+        "site_name": "YouTube",
+        "author_names": ["Public History Channel"],
+        "url": "https://www.youtube.com/watch?v=docu0000001"
+      },
+      "url": "https://www.youtube.com/watch?v=docu0000001",
+      "expected_matches": false,
+      "expected_block": false,
+      "notes": "Long-form documentary; not short-form viral reposts."
+    },
+    {
+      "id": "gt_cm_author_only_signal",
+      "user_description": "Block videos from channel 'DistractedDaily' only.",
+      "url": "https://www.youtube.com/watch?v=ch000000001",
+      "metadata": {
+        "video_id": "ch000000001",
+        "title": "Morning productivity routine — 10 habits in 10 minutes",
+        "content_type": "video",
+        "description": "Channels: DistractedDaily",
+        "site_name": "YouTube",
+        "author_names": ["DistractedDaily"],
+        "url": "https://www.youtube.com/watch?v=ch000000001"
+      },
+      "expected_matches": true,
+      "expected_block": true,
+      "notes": "Channel-specific rule; match based on author_names."
+    },
+    {
+      "id": "gt_cm_wrong_channel",
+      "user_description": "Block videos from channel 'DistractedDaily' only.",
+      "url": "https://www.youtube.com/watch?v=ch000000002",
+      "metadata": {
+        "video_id": "ch000000002",
+        "title": "Morning productivity routine — 10 habits in 10 minutes",
+        "content_type": "video",
+        "description": "Channels: FocusFirst",
+        "site_name": "YouTube",
+        "author_names": ["FocusFirst"],
+        "url": "https://www.youtube.com/watch?v=ch000000002"
+      },
+      "expected_matches": false,
+      "expected_block": false,
+      "notes": "Same topic, different channel; should not match channel-specific rule."
+    }
+  ],
+  "generate_rules": [
+    {
+      "id": "gt_gr_social_scope",
+      "description": "Social media feeds like Instagram explore, TikTok FYP, and Twitter/X trending — mindless scrolling.",
+      "expected_summary_keywords_any": [
+        "instagram",
+        "tiktok",
+        "twitter",
+        "social"
+      ],
+      "notes": "Use for substring or LLM-judge checks on generated summaries (soft criteria)."
+    },
+    {
+      "id": "gt_gr_news_politics",
+      "description": "Political news commentary and election livestreams on YouTube.",
+      "expected_summary_keywords_any": [
+        "polit",
+        "news",
+        "election",
+        "youtube"
+      ],
+      "notes": "Broad keyword check; tighten rubric when you add human labels."
+    },
+    {
+      "id": "gt_gr_sports",
+      "description": "Highlights, full matches, and sports talk shows for football and basketball.",
+      "expected_summary_keywords_any": [
+        "sport",
+        "football",
+        "basketball",
+        "highlight"
+      ],
+      "notes": "Optional automated smoke test on /generate-block-rules output."
+    }
+  ]
+}

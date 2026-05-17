@@ -14,6 +14,8 @@ ANTHROPIC_MODEL = "claude-3-haiku-20240307"
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 MAX_TOKENS_GENERATION = 2000
 MAX_TOKENS_MATCHING = 500
+# Max LangGraph steps for metadata ReAct subgraph (includes model + tool nodes).
+MAX_METADATA_REACT_RECURSION = 25
 
 # Similarity Thresholds
 HIGH_SIMILARITY_THRESHOLD = 0.80

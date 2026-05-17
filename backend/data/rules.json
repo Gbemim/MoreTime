@@ -1,19 +1,19 @@
 {
   "default-tenant": [
     {
-      "id": "b3fa9d38-26db-4f29-9c0c-75f0db45c800",
-      "userDescription": "anything with John Oliver",
-      "aiSummary": "This rule will block any YouTube videos that contain the phrase 'John Oliver' in the title, description, or tags.\n\n- John Oliver Last Week Tonight\n- John Oliver's take on politics\n- Anything with John Oliver in it\n- John Oliver comedy sketches\n- John Oliver news commentary",
+      "id": "f1edccaf-5829-4c8b-ac51-82dcf1aa09eb",
+      "userDescription": "anything related to last week tonight show",
+      "aiSummary": "This rule will block any YouTube videos related to the 'Last Week Tonight' show, including clips, segments, or full episodes.\n\n- Last Week Tonight with John Oliver\n- Last Week Tonight segments\n- Last Week Tonight clips\n- Last Week Tonight episodes\n- John Oliver Last Week Tonight\n- Last Week Tonight related videos",
       "patterns": [],
       "schedule": {
         "type": "duration",
         "durationMinutes": 60,
-        "startTime": 1775648699044,
+        "startTime": 1776623865598,
         "daysOfWeek": null,
         "endTime": null
       },
       "enabled": true,
-      "createdAt": 1775648710387
+      "createdAt": 1776623884243
     }
   ]
 }

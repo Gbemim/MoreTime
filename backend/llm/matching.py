@@ -2,15 +2,17 @@
 LLM integration for checking if metadata matches blocking rules
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
 import uuid
-from typing import Dict, Any, List
+from typing import Any, Dict, cast
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
-from pydantic.v1 import SecretStr
+from langchain_core.runnables import RunnableConfig
 
 from schemas import CheckMetadataResponse
 from config import require_anthropic_api_key
@@ -21,60 +23,29 @@ from constants import (
     LOW_SIMILARITY_THRESHOLD,
     CONFIDENCE_THRESHOLD,
     ERROR_METADATA_CHECK_FAILED,
+    MAX_METADATA_REACT_RECURSION,
 )
 from .utils import extract_json_from_response
 from .embeddings import get_embedding, cosine_similarity
+from .metadata_match_policy import build_single_shot_matching_prompt, format_metadata_block
 from .metadata_source import (
     metadata_author_names,
     resolve_metadata,
 )
+from .graphs.state import CheckMetadataState
 
 logger = logging.getLogger(__name__)
 
 
-def _format_authors_for_prompt(metadata: Dict[str, Any]) -> str:
-    names = metadata_author_names(metadata)
-    if not names:
-        return "N/A"
-    return "; ".join(names)
-
-
 def _create_chat_model(api_key: str) -> ChatAnthropic:
-    params: Dict[str, Any] = {
-        "model_name": ANTHROPIC_MODEL,
-        "timeout": None,
-        "stop": None,
-        "base_url": None,
-        "api_key": SecretStr(api_key),
-        "max_tokens": MAX_TOKENS_MATCHING,
-    }
-    return ChatAnthropic(**params)
-
-
-def _format_metadata_string(metadata: Dict[str, Any], url: str) -> str:
-    """
-    Format metadata dictionary into a readable string
-    
-    Args:
-        metadata: Website metadata dictionary
-        url: Website URL
-        
-    Returns:
-        Formatted metadata string
-    """
-    return f"""
-YouTube Video URL: {url}
-Video ID: {metadata.get('video_id', 'N/A')}
-
-Channels (uploaders / collaborations):
-- author_names: {_format_authors_for_prompt(metadata)}
-
-Video Metadata (normalized fields; oEmbed-first, OGP fallback):
-- title: {metadata.get('title', 'N/A')}
-- content_type: {metadata.get('content_type', 'N/A')}
-- description: {metadata.get('description', 'N/A')}
-- site_name: {metadata.get('site_name', 'N/A')}
-"""
+    return ChatAnthropic(
+        model_name=ANTHROPIC_MODEL,
+        api_key=api_key,
+        max_tokens=MAX_TOKENS_MATCHING,  # type: ignore[call-arg]
+        timeout=None,
+        stop=None,
+        base_url=None,
+    )
 
 
 def _youtube_metadata_insufficient(metadata: Dict[str, Any]) -> bool:
@@ -99,49 +70,6 @@ def _youtube_metadata_insufficient(metadata: Dict[str, Any]) -> bool:
     return False
 
 
-def _build_matching_prompt(user_description: str, metadata_str: str) -> str:
-    """
-    Build the prompt for checking metadata matches
-    
-    Args:
-        user_description: User's blocking rule description
-        metadata_str: Formatted metadata string
-        
-    Returns:
-        Formatted prompt string
-    """
-    return f"""You are helping determine if a YouTube video should be blocked based on a user's rule.
-
-User's blocking rule description (what kind of videos they want to block):
-"{user_description}"
-
-YouTube Video Metadata (oEmbed-first, OGP fallback):
-{metadata_str}
-
-Determine if this YouTube video matches the user's blocking rule. Consider:
-- The video's title and description
-- The video's content and topic
-- Whether it falls into what the user wants to block
-- The context and intent of the user's rule
-
-Return your response as a JSON object with this exact structure:
-{{
-  "matches": true or false,
-  "confidence": 0.0 to 1.0 (how confident you are in your decision),
-  "reasoning": "Brief explanation of why this YouTube video matches or doesn't match the user's rule"
-}}
-
-IMPORTANT:
-- This is specifically for YouTube videos - focus on video content, not general websites
-- Be strict - only return matches: true if the video clearly falls under the user's blocking rule
-- If matches: true, your confidence should be at least 0.5 (you should be confident when blocking)
-- If matches: false, confidence can be lower (it's okay to be uncertain about non-matches)
-- Confidence represents how sure you are that your matches decision is correct
-- Metadata fields may be populated from YouTube oEmbed first, with OGP as fallback; treat provided title/description fields as the primary evidence
-- If title is only the generic word \"YouTube\" (or empty) and description is missing or generic, you MUST return matches: false — do not infer video topic from the platform name
-- Do not treat marketing boilerplate in the description (e.g. \"Enjoy the videos and music you love\") as evidence the video matches the rule"""
-
-
 async def check_metadata_matches_rule(
     user_description: str,
     url: str,
@@ -161,16 +89,17 @@ async def check_metadata_matches_rule(
         ValueError: If API key is not set or check fails
     """
     try:
-        from .graphs.check_metadata_graph import get_check_metadata_graph
+        from .graphs.orchestrator_graph import get_orchestrator_graph
 
         # Metadata is resolved oEmbed-first with OGP fallback into normalized fields.
         effective_metadata = (
             metadata_override if isinstance(metadata_override, dict) else await resolve_metadata(url)
         )
 
-        graph = get_check_metadata_graph()
+        graph = get_orchestrator_graph()
         result = await graph.ainvoke(
             {
+                "task": "check_metadata",
                 "user_description": user_description,
                 "metadata": effective_metadata,
                 "url": url,
@@ -217,30 +146,12 @@ def _format_metadata_for_embedding(metadata: Dict[str, Any]) -> str:
     return metadata_text
 
 
-async def check_metadata_matches_rule_optimized(
-    user_description: str,
-    url: str,
-    metadata_override: Dict[str, Any] | None = None,
-) -> CheckMetadataResponse:
-    """
-    Optimized hybrid approach: Use embeddings for fast check, LLM only when needed
-    
-    Args:
-        user_description: User's blocking rule description
-        url: Website URL
-        
-    Returns:
-        CheckMetadataResponse with match result, confidence, and reasoning
-    """
-    return await check_metadata_matches_rule(
-        user_description=user_description,
-        url=url,
-        metadata_override=metadata_override,
-    )
-
-
-async def matching_node_metadata_quality_guard(state: Dict[str, Any]) -> Dict[str, Any]:
-    metadata = state["metadata"]
+async def matching_node_metadata_quality_guard(
+    state: CheckMetadataState, config: RunnableConfig
+) -> Dict[str, Any]:
+    metadata = state.get("metadata")
+    if metadata is None:
+        raise ValueError("metadata is required for metadata_quality_guard")
     if _youtube_metadata_insufficient(metadata):
         logger.info("[MATCH] Skipping embeddings/LLM — metadata insufficient (generic/stale)")
         return {
@@ -259,16 +170,20 @@ async def matching_node_metadata_quality_guard(state: Dict[str, Any]) -> Dict[st
     }
 
 
-async def matching_node_embedding_similarity(state: Dict[str, Any]) -> Dict[str, Any]:
+async def matching_node_embedding_similarity(
+    state: CheckMetadataState, config: RunnableConfig
+) -> Dict[str, Any]:
     logger.info("[MATCH] Computing embeddings...")
-    rule_embedding = await get_embedding(state["user_description"])
-    metadata_embedding = await get_embedding(state["metadata_text"])
+    rule_embedding = await get_embedding(state["user_description"])  # type: ignore[typeddict-item]
+    metadata_embedding = await get_embedding(state["metadata_text"])  # type: ignore[typeddict-item]
     similarity = cosine_similarity(rule_embedding, metadata_embedding)
     logger.info(f"[MATCH] Embedding similarity: {similarity:.3f}")
     return {"similarity": similarity}
 
 
-def matching_route_after_metadata_quality_guard(state: Dict[str, Any]) -> str:
+def matching_route_after_metadata_quality_guard(
+    state: CheckMetadataState, config: RunnableConfig
+) -> str:
     return (
         "finalize"
         if state.get("skip_due_to_insufficient_metadata")
@@ -276,14 +191,19 @@ def matching_route_after_metadata_quality_guard(state: Dict[str, Any]) -> str:
     )
 
 
-def matching_route_after_similarity(state: Dict[str, Any]) -> str:
+def matching_route_after_similarity(
+    state: CheckMetadataState, config: RunnableConfig
+) -> str:
     similarity = float(state.get("similarity", 0.0))
     if similarity >= HIGH_SIMILARITY_THRESHOLD:
         return "high_similarity_decision"
     return "llm_decision"
 
 
-async def matching_node_high_similarity_decision(state: Dict[str, Any]) -> Dict[str, Any]:
+
+async def matching_node_high_similarity_decision(
+    state: CheckMetadataState, config: RunnableConfig
+) -> Dict[str, Any]:
     similarity = float(state.get("similarity", 0.0))
     return {
         "matches": True,
@@ -293,7 +213,30 @@ async def matching_node_high_similarity_decision(state: Dict[str, Any]) -> Dict[
     }
 
 
-async def matching_node_llm_decision(state: Dict[str, Any]) -> Dict[str, Any]:
+async def _single_shot_metadata_decision(
+    api_key: str, user_description: str, metadata_str: str, url: str
+) -> Dict[str, Any]:
+    prompt = build_single_shot_matching_prompt(user_description, metadata_str)
+    model = _create_chat_model(api_key)
+    logger.info("[MATCH] Single-shot LLM fallback for URL: %s", url)
+    response = await model.ainvoke([HumanMessage(content=prompt)])
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(
+            str(getattr(block, "text", block)) for block in content
+        )
+    parsed = extract_json_from_response(str(content))
+    return {
+        "matches": bool(parsed.get("matches", False)),
+        "confidence": float(parsed.get("confidence", 0.0)),
+        "reasoning": str(parsed.get("reasoning", "No reasoning provided")),
+        "reason_code": "llm_evaluation",
+    }
+
+
+async def matching_node_llm_decision(
+    state: CheckMetadataState, config: RunnableConfig
+) -> Dict[str, Any]:
     similarity = float(state.get("similarity", 0.0))
     if similarity < LOW_SIMILARITY_THRESHOLD:
         logger.info(
@@ -305,36 +248,86 @@ async def matching_node_llm_decision(state: Dict[str, Any]) -> Dict[str, Any]:
             f"[MATCH] Medium similarity ({similarity:.1%}) - using LLM for decision"
         )
 
+    metadata = state.get("metadata")
+    url = state.get("url")
+    user_description = state.get("user_description")
+    if metadata is None or url is None or user_description is None:
+        raise ValueError("metadata, url, and user_description are required for llm_decision")
+
     api_key = require_anthropic_api_key()
-    metadata_str = _format_metadata_string(state["metadata"], state["url"])
-    prompt = _build_matching_prompt(state["user_description"], metadata_str)
-    model = _create_chat_model(api_key)
-    logger.info("[MATCH] Checking metadata match for URL: %s", state["url"])
-    logger.debug("[MATCH] User description: %s", state["user_description"])
-    logger.debug("[MATCH] Metadata: %s", json.dumps(state["metadata"], indent=2))
-    response = await model.ainvoke([HumanMessage(content=prompt)])
-    content = response.content
-    if isinstance(content, list):
-        content = "".join(
-            str(getattr(block, "text", block)) for block in content
-        )
-    parsed = extract_json_from_response(str(content))
-    matches = bool(parsed.get("matches", False))
-    confidence = float(parsed.get("confidence", 0.0))
-    reasoning = str(parsed.get("reasoning", "No reasoning provided"))
-    logger.info(
-        f"[MATCH] Result - matches: {matches}, "
-        f"confidence: {confidence:.2f}, reasoning: {reasoning}"
+    metadata_str = format_metadata_block(metadata, url)
+    logger.info("[MATCH] Checking metadata match for URL: %s", url)
+    logger.debug("[MATCH] User description: %s", user_description)
+    logger.debug("[MATCH] Metadata: %s", json.dumps(metadata, indent=2))
+
+    from .graphs.metadata_react_subgraph import (
+        build_react_user_message,
+        get_last_submission,
+        get_metadata_react_graph,
+        react_recursion_config,
+        reset_react_invocation_context,
+        set_react_invocation_context,
     )
-    return {
-        "matches": matches,
-        "confidence": confidence,
-        "reason_code": "llm_evaluation",
-        "reasoning": reasoning,
+
+    bundle = {
+        "user_description": user_description,
+        "metadata_str": metadata_str,
+        "similarity": similarity,
     }
+    t_bundle, t_sub = set_react_invocation_context(bundle)
+    submission = None
+    try:
+        react_graph = get_metadata_react_graph()
+        logger.info(
+            "[MATCH][ReAct] Invoking metadata subgraph (recursion_limit=%s)",
+            MAX_METADATA_REACT_RECURSION,
+        )
+        await react_graph.ainvoke(
+            {"messages": [build_react_user_message()]},
+            cast(RunnableConfig, react_recursion_config()),
+        )
+        submission = get_last_submission()
+    except Exception as e:
+        logger.warning("[MATCH][ReAct] Subgraph failed, using single-shot: %s", e)
+    finally:
+        reset_react_invocation_context(t_bundle, t_sub)
+
+    if submission and isinstance(submission, dict) and "matches" in submission:
+        matches = bool(submission["matches"])
+        confidence = float(submission["confidence"])
+        reasoning = str(submission.get("reasoning", "No reasoning provided"))
+        logger.info(
+            "[MATCH][ReAct] Result - matches: %s, confidence: %.2f, reasoning: %s",
+            matches,
+            confidence,
+            reasoning,
+        )
+        return {
+            "matches": matches,
+            "confidence": confidence,
+            "reason_code": "llm_evaluation",
+            "reasoning": reasoning,
+        }
+
+    logger.info("[MATCH][ReAct] No submit_match_decision; falling back to single-shot JSON")
+    out = await _single_shot_metadata_decision(
+        api_key,
+        user_description,
+        metadata_str,
+        url,
+    )
+    logger.info(
+        "[MATCH] Result - matches: %s, confidence: %.2f, reasoning: %s",
+        out["matches"],
+        out["confidence"],
+        out["reasoning"],
+    )
+    return out
 
 
-async def matching_node_finalize(state: Dict[str, Any]) -> Dict[str, Any]:
+async def matching_node_finalize(
+    state: CheckMetadataState, config: RunnableConfig
+) -> Dict[str, Any]:
     return {
         "matches": bool(state.get("matches", False)),
         "confidence": float(state.get("confidence", 0.0)),

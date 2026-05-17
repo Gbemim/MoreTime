@@ -7,8 +7,6 @@ from typing import Any, Dict
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
-from pydantic.v1 import SecretStr
-
 from schemas import GenerateRulesResponse
 from config import require_anthropic_api_key
 from constants import (
@@ -51,16 +49,13 @@ Return **only** one JSON object (no markdown fences, no other text), exactly:
 
 def _create_chat_model(api_key: str) -> ChatAnthropic:
     """Create and return a LangChain Anthropic chat model."""
-    params: Dict[str, Any] = {
-        "model_name": ANTHROPIC_MODEL,
-        "timeout": None,
-        "stop": None,
-        "base_url": None,
-        "api_key": SecretStr(api_key),
-        "max_tokens": MAX_TOKENS_GENERATION,
-    }
     return ChatAnthropic(
-        **params,
+        model_name=ANTHROPIC_MODEL,
+        api_key=api_key,
+        max_tokens=MAX_TOKENS_GENERATION,  # type: ignore[call-arg]
+        timeout=None,
+        stop=None,
+        base_url=None,
     )
 
 
@@ -102,13 +97,15 @@ async def generation_node_normalize_summary(state: Dict[str, Any]) -> Dict[str, 
 
 async def generate_block_rules(description: str) -> GenerateRulesResponse:
     """Generate blocking rules via LangGraph + LangChain Anthropic."""
-    from .graphs.generate_rules_graph import get_generate_rules_graph
+    from .graphs.orchestrator_graph import get_orchestrator_graph
 
     description_preview = description[:100] + "..." if len(description) > 100 else description
     logger.info(f"[LLM] Generating rules for description: {description_preview}")
     try:
-        graph = get_generate_rules_graph()
-        result = await graph.ainvoke({"description": description})
+        graph = get_orchestrator_graph()
+        result = await graph.ainvoke(
+            {"task": "generate_rules", "description": description}
+        )
         summary = str(result.get("summary") or "").strip()
         if not summary:
             raise ValueError("Summary is required and cannot be empty")
