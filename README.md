@@ -44,8 +44,8 @@ MoreTime/
 
 2. Create a virtual environment:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
 
 3. Install dependencies:
@@ -62,12 +62,6 @@ MoreTime/
    ```
    ANTHROPIC_API_KEY=your_anthropic_api_key_here
    OPENAI_API_KEY=your_openai_api_key_here
-   ```
-
-   Optional tracing (not required for runtime):
-   ```
-   LANGSMITH_API_KEY=your_langsmith_api_key_here
-   LANGSMITH_TRACING=true
    ```
 
 6. Start the FastAPI server:
